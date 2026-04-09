@@ -1,0 +1,38 @@
+{
+  "data_execucao": "09/04/2026 15:42:14",
+  "periodo": {
+    "inicio": "09/04/2026",
+    "fim": "09/04/2026"
+  },
+  "total_contas": 1,
+  "resumo": {
+    "com_saldo": 1,
+    "sem_saldo": 0,
+    "com_movimento": 1,
+    "sem_movimento": 0,
+    "erros": 0
+  },
+  "contas": [
+    {
+      "conta": "0003717752",
+      "empresa": "IG TRANSPORTES LTDA",
+      "agencia": "0001-9",
+      "banco": "213 - Banco Arbi",
+      "saldo": 2.0,
+      "tem_saldo": true,
+      "movimentacoes": [
+        {
+          "data_movimento": "08/04/2026",
+          "documento": "134068C",
+          "historico": "TED RECEB DE DIF TITULARID",
+          "finalidade": "de BANCO ITAU S/A                                 ",
+          "valor": 17604.71,
+          "natureza": "C",
+          "tipo": "credito"
+        }
+      ],
+      "tem_movimento": true,
+      "erro": null
+    }
+  ]
+}

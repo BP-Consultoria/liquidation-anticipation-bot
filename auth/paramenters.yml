@@ -1,0 +1,16 @@
+paramenters_arbi:
+  authorization: Basic Y2FmZjU5MTktNThlMi0zMGIwLWEyMTItMmY2MzVmNzM1YTRiOjY0MDEyNGRiLWQ3NzYtMzE2OS05OTQxLTBjZDBhYTYwMjFmMw==
+  client_id: caff5919-58e2-30b0-a212-2f635f735a4b
+  client_secret: 640124db-d776-3169-9941-0cd0aa6021f3
+  idrequisicao: 252317
+  inscricaoparceiro: '26845323000170'
+  token: e76beef5-33fa-4186-ada3-164c5a8ead36
+  tokenusuario: RtOResyNtOResepOSpEcIaNTIonSFACk
+paramenters_conn:
+  dominio: grupolis
+  host: DESKTOP-5U4MPT5
+  password: '!QkE6Bse'
+  port: '139'
+  server: 192.168.0.71
+  server_name: srvfs
+  user: administrador
