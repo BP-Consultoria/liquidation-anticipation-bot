@@ -49,15 +49,16 @@ class DatabaseService:
         linhas = cursor.fetchall()
         return [dict(zip(colunas, row)) for row in linhas]
 
-    def buscar_dados_para_rpa(self) -> pd.DataFrame:
+    def buscar_dados_para_rpa(self, cedentes: list[str]) -> pd.DataFrame:
         if not self._conn:
             raise ConnectionError("Conexão não estabelecida. Chame conectar() primeiro.")
 
+        placeholders = ",".join("?" for _ in cedentes)
         query = (
             "SELECT "
             "    a.Bordero, a.Cedente, a.Titulo, a.Valor, "
-            "    a.created_at, a.Vencimento, a.Nome_Cedente, "
-            "    a.Valor_Total_Desagio, b.Valor_Liquido_Final "
+            "    a.created_at, a.Vencimento, "
+            "    b.Valor_Total_Desagio, b.Valor_Liquido_Final "
             "FROM anticipation_db.dbo.anticipation_db AS a "
             "INNER JOIN anticipation_db.dbo.borderos AS b "
             "    ON a.Bordero = b.Bordero "
@@ -65,9 +66,16 @@ class DatabaseService:
             "    a.Is_inserted = 1 "
             "    AND a.Control_id = 4 "
             "    AND a.created_at >= CAST(GETDATE() AS DATE) "
-            "    AND a.created_at < DATEADD(DAY, 1, CAST(GETDATE() AS DATE))"
+            "    AND a.created_at < DATEADD(DAY, 1, CAST(GETDATE() AS DATE)) "
+            f"    AND a.Cedente IN ({placeholders}) "
+            "    AND b.Valor_Liquido_Final IS NOT NULL"
         )
-        return pd.read_sql(query, self._conn)
+
+        cursor = self._conn.cursor()
+        cursor.execute(query, cedentes)
+        colunas = [col[0] for col in cursor.description]
+        linhas = cursor.fetchall()
+        return pd.DataFrame([dict(zip(colunas, row)) for row in linhas])
 
     def atualizar_valor_liquido(self, numero_bordero: int, valor: float):
         if not self._conn:

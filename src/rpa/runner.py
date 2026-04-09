@@ -1,5 +1,19 @@
 from services.database import db_service
-from utils.extrair_extratos import renovar_token, consultar_extrato, parsear_movimentacoes
+from utils.extrair_extratos import (
+    CONTAS, renovar_token, consultar_extrato, parsear_movimentacoes,
+)
+
+def buscar_conta_por_cedente(cedente_db: str) -> str | None:
+    """Mapeia nome do cedente do banco → número da conta no Arbi.
+    Compara pelo início do nome para tolerar diferenças como EIRELI/LTDA."""
+    cedente_upper = cedente_db.upper().strip()
+    for conta, nome_arbi in CONTAS.items():
+        # Compara as duas primeiras palavras (ex: "TEC TRANSPORTES")
+        palavras_arbi = nome_arbi.upper().split()[:2]
+        palavras_db = cedente_upper.split()[:2]
+        if palavras_arbi == palavras_db:
+            return conta
+    return None
 
 
 def run():
@@ -22,34 +36,42 @@ def run():
         # 3. Renovar token da API Arbi
         renovar_token()
 
-        # 4. Agrupar borderôs por cedente (conta)
-        borderos_por_conta = {}
+        # 4. Agrupar borderôs por cedente (nome do banco)
+        borderos_por_cedente = {}
         for row in antecipacoes:
-            conta = row["Cedente"]
-            borderos_por_conta.setdefault(conta, []).append(row["Bordero"])
+            cedente = row["Cedente"]
+            borderos_por_cedente.setdefault(cedente, []).append(row["Bordero"])
 
-        # 5. Para cada conta, consultar extrato e atualizar Valor_Liquido_Final
+        # 5. Para cada cedente, mapear para conta Arbi, consultar extrato e atualizar
         atualizou = False
-        for conta, borderos in borderos_por_conta.items():
-            print(f"\n[FLOW] Consultando extrato da conta {conta}...")
+        cedentes_atualizados = []
+        for cedente, borderos in borderos_por_cedente.items():
+            conta = buscar_conta_por_cedente(cedente)
+            if not conta:
+                print(f"\n[FLOW] Cedente '{cedente}' não encontrado no mapa de contas. Pulando.")
+                continue
+
+            print(f"\n[FLOW] Consultando extrato de {cedente} (conta {conta})...")
 
             extrato_api = consultar_extrato(conta)
             if isinstance(extrato_api, dict) and "erro" in extrato_api:
-                print(f"  ERRO ao consultar extrato da conta {conta}: {extrato_api['erro']}")
+                print(f"  ERRO ao consultar extrato: {extrato_api['erro']}")
                 continue
 
             movimentacoes = parsear_movimentacoes(extrato_api)
 
             if not movimentacoes:
-                print(f"  Nenhuma movimentação encontrada para conta {conta}")
+                print(f"  Nenhuma movimentação encontrada para {cedente}")
                 continue
 
             valor = movimentacoes[0]["valor"]
             print(f"  Movimentação encontrada: R$ {valor:,.2f}")
 
-            for bordero in borderos:
+            borderos_unicos = set(borderos)
+            for bordero in borderos_unicos:
                 db_service.atualizar_valor_liquido(bordero, valor)
                 atualizou = True
+            cedentes_atualizados.append(cedente)
 
         # 6. Se atualizou, buscar DF para o RPA liquidar
         if not atualizou:
@@ -57,9 +79,9 @@ def run():
             return
 
         print("\n[RPA] Buscando dados para liquidação...")
-        df = db_service.buscar_dados_para_rpa()
+        df = db_service.buscar_dados_para_rpa(cedentes_atualizados)
         print(f"[RPA] {len(df)} títulos para liquidar:")
-        print(df[["Bordero", "Nome_Cedente", "Titulo", "Vencimento", "Valor_Liquido_Final", "Valor_Total_Desagio"]].to_string(index=False))
+        print(df[["Bordero", "Cedente", "Titulo", "Vencimento", "Valor_Liquido_Final", "Valor_Total_Desagio"]].to_string(index=False))
 
         # TODO: iniciar RPA com o df
         # rpa_liquidar(df)
