@@ -3,6 +3,23 @@ from utils.extrair_extratos import (
     CONTAS, renovar_token, consultar_extrato, parsear_movimentacoes,
 )
 
+# Mapa de código do cedente no sistema
+CODIGO_CEDENTE = {
+    "IG TRANSPORTES": 16634,
+    "TEC TRANSPORTES": 5088,
+    "GAIA EMPREENDIMENTOS": 21498,
+}
+
+
+def buscar_codigo_cedente(cedente_db: str) -> int | None:
+    """Retorna o código do cedente a partir do nome do banco."""
+    cedente_upper = cedente_db.upper().strip()
+    for prefixo, codigo in CODIGO_CEDENTE.items():
+        if cedente_upper.startswith(prefixo):
+            return codigo
+    return None
+
+
 def buscar_conta_por_cedente(cedente_db: str) -> str | None:
     """Mapeia nome do cedente do banco → número da conta no Arbi.
     Compara pelo início do nome para tolerar diferenças como EIRELI/LTDA."""
@@ -80,8 +97,9 @@ def run():
 
         print("\n[RPA] Buscando dados para liquidação...")
         df = db_service.buscar_dados_para_rpa(cedentes_atualizados)
+        df["codigo_cedente"] = df["Cedente"].apply(buscar_codigo_cedente)
         print(f"[RPA] {len(df)} títulos para liquidar:")
-        print(df[["Bordero", "Cedente", "Titulo", "Vencimento", "Valor_Liquido_Final", "Valor_Total_Desagio"]].to_string(index=False))
+        print(df[["Bordero", "Cedente", "codigo_cedente", "Titulo", "Vencimento", "Valor_Liquido_Final", "Valor_Total_Desagio"]].to_string(index=False))
 
         # TODO: iniciar RPA com o df
         # rpa_liquidar(df)
