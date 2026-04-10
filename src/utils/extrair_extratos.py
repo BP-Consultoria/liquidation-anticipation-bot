@@ -157,6 +157,7 @@ def consultar_saldo(conta):
 # ──────────────────────────────────────────────
 
 def parsear_movimentacoes(dados_api):
+    """Parseia todas as movimentações do dia atual do extrato."""
     if not isinstance(dados_api, list):
         return []
 
@@ -170,13 +171,7 @@ def parsear_movimentacoes(dados_api):
         try:
             resultado = ast.literal_eval(item["resultado"])
 
-            # Filtro 1: apenas movimentações do dia atual
             if resultado.get("datamovimento", "") != dia_atual:
-                continue
-
-            # Filtro 2: apenas finalidade contendo "de BANCO ITAU S/A"
-            finalidade = resultado.get("finalidade", "")
-            if "de BANCO ITAU S/A" not in finalidade:
                 continue
 
             historico = resultado.get("historico", "")
@@ -187,7 +182,7 @@ def parsear_movimentacoes(dados_api):
                 "data_movimento": resultado.get("datamovimento", ""),
                 "documento": resultado.get("nrodocto", ""),
                 "historico": historico,
-                "finalidade": finalidade,
+                "finalidade": resultado.get("finalidade", ""),
                 "valor": float(resultado.get("valor", 0)),
                 "natureza": resultado.get("natureza", ""),
                 "tipo": "credito" if resultado.get("natureza") == "C" else "debito"
@@ -195,8 +190,16 @@ def parsear_movimentacoes(dados_api):
         except (ValueError, SyntaxError, KeyError) as e:
             movimentacoes.append({"erro_parse": str(e), "dado_original": item})
 
-    movimentacoes.sort(key=lambda x: datetime.strptime(x["data_movimento"], "%d/%m/%Y") if x.get("data_movimento") else datetime.min)
     return movimentacoes
+
+
+def buscar_valor_liquido(dados_api):
+    """Busca o valor do débito TED - REMESSA no extrato do dia (Valor_Liquido_Final)."""
+    movimentacoes = parsear_movimentacoes(dados_api)
+    for mov in movimentacoes:
+        if mov.get("tipo") == "debito" and "TED" in mov.get("historico", "").upper() and "REMESSA" in mov.get("historico", "").upper():
+            return mov["valor"]
+    return None
 
 
 def parsear_saldo(dados_api):

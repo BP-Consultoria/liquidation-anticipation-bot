@@ -56,8 +56,8 @@ class DatabaseService:
         placeholders = ",".join("?" for _ in cedentes)
         query = (
             "SELECT "
-            "    a.Bordero, a.Cedente, a.Titulo, a.Valor, "
-            "    a.created_at, a.Vencimento, "
+            "    a.Bordero, a.Cedente, a.Sacado, a.Titulo, a.Valor, "
+            "    a.Emissao, a.created_at, a.Vencimento, "
             "    b.Valor_Total_Desagio, b.Valor_Liquido_Final "
             "FROM anticipation_db.dbo.anticipation_db AS a "
             "INNER JOIN anticipation_db.dbo.borderos AS b "
@@ -86,7 +86,8 @@ class DatabaseService:
             "UPDATE [anticipation_db].[dbo].[borderos] "
             "SET Valor_Liquido_Final = ? "
             "WHERE Bordero = ?",
-            valor, numero_bordero,
+            valor,
+            numero_bordero,
         )
         self._conn.commit()
         print(f"[DB] Bordero {numero_bordero} atualizado com valor R$ {valor:.2f}")

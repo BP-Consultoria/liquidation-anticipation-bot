@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     api_key: str = ""
     api_timeout: int = 30
 
-    # Database settings
+    # Database settings (anticipation_db)
     db_driver: str = "mssql+pyodbc"
     db_host: str = "localhost"
     db_port: int = 1433
@@ -20,6 +20,14 @@ class Settings(BaseSettings):
     db_user: str = ""
     db_password: str = ""
     db_odbc_driver: str = "ODBC Driver 17 for SQL Server"
+
+    # Database settings (securitização)
+    sec_host: str = ""
+    sec_port: int = 1433
+    sec_name: str = ""
+    sec_user: str = ""
+    sec_password: str = ""
+    sec_odbc_driver: str = "ODBC Driver 17 for SQL Server"
 
     @property
     def database_url(self) -> str:

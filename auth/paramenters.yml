@@ -2,9 +2,9 @@ paramenters_arbi:
   authorization: Basic Y2FmZjU5MTktNThlMi0zMGIwLWEyMTItMmY2MzVmNzM1YTRiOjY0MDEyNGRiLWQ3NzYtMzE2OS05OTQxLTBjZDBhYTYwMjFmMw==
   client_id: caff5919-58e2-30b0-a212-2f635f735a4b
   client_secret: 640124db-d776-3169-9941-0cd0aa6021f3
-  idrequisicao: 252322
+  idrequisicao: 252347
   inscricaoparceiro: '26845323000170'
-  token: 7488fd99-3d7e-4ce6-9879-63dcd36eb7b3
+  token: 92c5bbbe-c223-4a5b-bdd2-aed511a4704d
   tokenusuario: RtOResyNtOResepOSpEcIaNTIonSFACk
 paramenters_conn:
   dominio: grupolis

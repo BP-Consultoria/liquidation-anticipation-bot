@@ -1,6 +1,9 @@
+import pandas as pd
+
 from services.database import db_service
+from services.desagio import calcular_desagio, obter_dias_antecipacao
 from utils.extrair_extratos import (
-    CONTAS, renovar_token, consultar_extrato, parsear_movimentacoes,
+    CONTAS, renovar_token, consultar_extrato, buscar_valor_liquido,
 )
 
 # Mapa de código do cedente no sistema
@@ -75,14 +78,13 @@ def run():
                 print(f"  ERRO ao consultar extrato: {extrato_api['erro']}")
                 continue
 
-            movimentacoes = parsear_movimentacoes(extrato_api)
+            valor = buscar_valor_liquido(extrato_api)
 
-            if not movimentacoes:
-                print(f"  Nenhuma movimentação encontrada para {cedente}")
+            if valor is None:
+                print(f"  Nenhuma TED REMESSA encontrada para {cedente}")
                 continue
 
-            valor = movimentacoes[0]["valor"]
-            print(f"  Movimentação encontrada: R$ {valor:,.2f}")
+            print(f"  TED REMESSA encontrada: R$ {valor:,.2f}")
 
             borderos_unicos = set(borderos)
             for bordero in borderos_unicos:
@@ -98,11 +100,51 @@ def run():
         print("\n[RPA] Buscando dados para liquidação...")
         df = db_service.buscar_dados_para_rpa(cedentes_atualizados)
         df["codigo_cedente"] = df["Cedente"].apply(buscar_codigo_cedente)
-        print(f"[RPA] {len(df)} títulos para liquidar:")
-        print(df[["Bordero", "Cedente", "codigo_cedente", "Titulo", "Vencimento", "Valor_Liquido_Final", "Valor_Total_Desagio"]].to_string(index=False))
 
-        # TODO: iniciar RPA com o df
-        # rpa_liquidar(df)
+        # 7. Recalcular deságio por cedente
+        print("\n[DESAGIO] Recalculando deságio dos títulos...")
+        dfs_final = []
+        for cedente, group in df.groupby("Cedente"):
+            sacado = str(group["Sacado"].iloc[0])
+            dias_regra = obter_dias_antecipacao(str(cedente), sacado)
+            prazo_minimo = dias_regra if dias_regra is not None else 0
+
+            df_calc = group.rename(columns={
+                "Bordero": "bordero",
+                "Titulo": "titulo",
+                "Emissao": "emissao",
+                "Vencimento": "vencimento",
+            })
+
+            df_desagio = calcular_desagio(df_calc, prazo_minimo=prazo_minimo)
+
+            if df_desagio.empty:
+                print(f"  {cedente}: nenhum título elegível para deságio")
+                continue
+
+            # Restaura nomes de colunas para o DF final
+            df_desagio = df_desagio.rename(columns={
+                "bordero": "Bordero",
+                "titulo": "Titulo",
+                "emissao": "Emissao",
+                "vencimento": "Vencimento",
+            })
+
+            total_desagio = df_desagio["valor_desagio"].sum()
+            print(f"  {cedente}: {len(df_desagio)} títulos | Deságio total: R$ {total_desagio:,.2f}")
+
+            dfs_final.append(df_desagio)
+
+        if not dfs_final:
+            print("\n[FLOW] Nenhum título elegível para deságio. RPA não será iniciado.")
+            return
+
+        df_rpa = pd.concat(dfs_final, ignore_index=True)
+        print(f"\n[RPA] {len(df_rpa)} títulos prontos para liquidar:")
+        print(df_rpa[["Bordero", "Cedente", "codigo_cedente", "Titulo", "Vencimento", "Valor", "valor_desagio", "Valor_Liquido_Final"]].to_string(index=False))
+
+        # TODO: iniciar RPA com o df_rpa
+        # rpa_liquidar(df_rpa)
 
         print("\n" + "=" * 60)
         print("FLUXO FINALIZADO")
