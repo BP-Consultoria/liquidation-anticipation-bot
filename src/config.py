@@ -11,6 +11,10 @@ class Settings(BaseSettings):
     api_base_url: str = ""
     api_key: str = ""
     api_timeout: int = 30
+    
+    # WBA settings
+    wba_username: str = ""
+    wba_password: str = ""
 
     # Database settings (anticipation_db)
     db_driver: str = "mssql+pyodbc"

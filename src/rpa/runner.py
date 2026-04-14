@@ -23,6 +23,25 @@ def buscar_codigo_cedente(cedente_db: str) -> int | None:
     return None
 
 
+def preparar_df_para_rpa(df: pd.DataFrame) -> pd.DataFrame:
+    """Remove ``valor_desagio``, garante ``Valor_Liquido`` e ordena para o RPA."""
+    out = df.copy()
+    if "valor_desagio" in out.columns:
+        out = out.drop(columns=["valor_desagio"])
+    if "Valor_Liquido" not in out.columns:
+        if "Valor_Liquido_Final" in out.columns:
+            out["Valor_Liquido"] = out["Valor_Liquido_Final"]
+        else:
+            raise ValueError("DataFrame sem Valor_Liquido nem Valor_Liquido_Final.")
+    out["Vencimento"] = pd.to_datetime(out["Vencimento"], errors="coerce", dayfirst=True)
+    out["Valor"] = pd.to_numeric(out["Valor"], errors="coerce")
+    out = out.sort_values(
+        by=["Vencimento", "Valor", "Titulo"],
+        ascending=[True, True, False],
+    ).reset_index(drop=True)
+    return out
+
+
 def buscar_conta_por_cedente(cedente_db: str) -> str | None:
     """Mapeia nome do cedente do banco → número da conta no Arbi.
     Compara pelo início do nome para tolerar diferenças como EIRELI/LTDA."""
@@ -140,8 +159,21 @@ def run():
             return
 
         df_rpa = pd.concat(dfs_final, ignore_index=True)
+        df_rpa = preparar_df_para_rpa(df_rpa)
+
+        cols_show = [
+            "Bordero",
+            "Cedente",
+            "codigo_cedente",
+            "Titulo",
+            "Vencimento",
+            "Valor",
+            "Valor_Liquido",
+            "Valor_Liquido_Final",
+        ]
+        cols_show = [c for c in cols_show if c in df_rpa.columns]
         print(f"\n[RPA] {len(df_rpa)} títulos prontos para liquidar:")
-        print(df_rpa[["Bordero", "Cedente", "codigo_cedente", "Titulo", "Vencimento", "Valor", "valor_desagio", "Valor_Liquido_Final"]].to_string(index=False))
+        print(df_rpa[cols_show].to_string(index=False))
 
         # TODO: iniciar RPA com o df_rpa
         # rpa_liquidar(df_rpa)
