@@ -156,6 +156,19 @@ def consultar_saldo(conta):
 # ETAPA 4 - Parsear movimentações da API
 # ──────────────────────────────────────────────
 
+def _tipo_e_natureza_movimento(natureza_raw: str) -> tuple[str, str]:
+    """Normaliza natureza da API e retorna (tipo, natureza_label).
+
+    Arbi costuma enviar ``C`` / ``D``; aceita também variações textuais.
+    """
+    n = (natureza_raw or "").strip().upper()
+    if n in ("C", "CRÉDITO", "CREDITO", "CREDIT"):
+        return "credito", "CRÉDITO"
+    if n in ("D", "DÉBITO", "DEBITO", "DEBIT"):
+        return "debito", "DÉBITO"
+    return "desconhecido", n or "(vazio)"
+
+
 def parsear_movimentacoes(dados_api):
     """Parseia todas as movimentações do dia atual do extrato."""
     if not isinstance(dados_api, list):
@@ -178,14 +191,18 @@ def parsear_movimentacoes(dados_api):
             if "-" in historico:
                 historico = historico.split("-", 1)[1].strip()
 
+            nat_raw = resultado.get("natureza", "")
+            tipo_mov, natureza_label = _tipo_e_natureza_movimento(str(nat_raw))
+
             movimentacoes.append({
                 "data_movimento": resultado.get("datamovimento", ""),
                 "documento": resultado.get("nrodocto", ""),
                 "historico": historico,
                 "finalidade": resultado.get("finalidade", ""),
                 "valor": float(resultado.get("valor", 0)),
-                "natureza": resultado.get("natureza", ""),
-                "tipo": "credito" if resultado.get("natureza") == "C" else "debito"
+                "natureza": nat_raw,
+                "natureza_normalizada": natureza_label,
+                "tipo": tipo_mov,
             })
         except (ValueError, SyntaxError, KeyError) as e:
             movimentacoes.append({"erro_parse": str(e), "dado_original": item})
@@ -194,10 +211,17 @@ def parsear_movimentacoes(dados_api):
 
 
 def buscar_valor_liquido(dados_api):
-    """Busca o valor do débito TED - REMESSA no extrato do dia (Valor_Liquido_Final)."""
+    """Valor da linha TED REMESSA no extrato do dia (Valor_Liquido_Final).
+
+    A Arbi pode enviar a mesma movimentação com natureza **crédito** ou **débito**;
+    o critério é o histórico (TED + REMESSA), não o tipo.
+    """
     movimentacoes = parsear_movimentacoes(dados_api)
     for mov in movimentacoes:
-        if mov.get("tipo") == "debito" and "TED" in mov.get("historico", "").upper() and "REMESSA" in mov.get("historico", "").upper():
+        if mov.get("erro_parse"):
+            continue
+        h = mov.get("historico", "").upper()
+        if "TED" in h and "REMESSA" in h:
             return mov["valor"]
     return None
 
