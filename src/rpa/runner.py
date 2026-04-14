@@ -25,7 +25,12 @@ def buscar_codigo_cedente(cedente_db: str) -> int | None:
 
 
 def preparar_df_para_rpa(df: pd.DataFrame) -> pd.DataFrame:
-    """Garante ``Valor_Liquido`` e ordena colunas para o RPA."""
+    """Garante ``Valor_Liquido`` e ordena o lote no mesmo espírito do grid do WBA.
+
+    Ordem de processamento no RPA (recompra, etc.): **vencimento** mais cedo primeiro,
+    depois **valor** menor primeiro, depois **título** do menor para o maior (numérico se
+    ``Titulo`` for número).
+    """
     out = df.copy()
     if "Valor_Liquido" not in out.columns:
         if "Valor_Liquido_Final" in out.columns:
@@ -34,10 +39,15 @@ def preparar_df_para_rpa(df: pd.DataFrame) -> pd.DataFrame:
             raise ValueError("DataFrame sem Valor_Liquido nem Valor_Liquido_Final.")
     out["Vencimento"] = pd.to_datetime(out["Vencimento"], errors="coerce", dayfirst=True)
     out["Valor"] = pd.to_numeric(out["Valor"], errors="coerce")
+    # Título como número quando possível (evita ordem lexicográfica 10 antes de 9)
+    titulo_num = pd.to_numeric(out["Titulo"], errors="coerce")
+    out["_titulo_ordem"] = titulo_num
     out = out.sort_values(
-        by=["Vencimento", "Valor", "Titulo"],
-        ascending=[True, True, False],
-    ).reset_index(drop=True)
+        by=["Vencimento", "Valor", "_titulo_ordem", "Titulo"],
+        ascending=[True, True, True, True],
+        na_position="last",
+    ).drop(columns=["_titulo_ordem"])
+    out = out.reset_index(drop=True)
     return out
 
 
