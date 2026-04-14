@@ -1,6 +1,7 @@
 """Funções auxiliares para texto/valores usados no RPA WBA."""
 
 from datetime import date, datetime
+from typing import Any
 
 import pandas as pd
 
@@ -71,3 +72,45 @@ def codigo_cedente_unico(df: pd.DataFrame) -> int:
     if isinstance(c, (float, int)) and not isinstance(c, bool):
         return int(c)
     return int(str(c).strip())
+
+
+def calcular_ajuste_dinamico(
+    df: pd.DataFrame,
+) -> tuple[pd.DataFrame, float, dict[str, Any] | None]:
+    """Usa ``Debito_Credito`` do lote (primeira linha). Se **negativo**, abate no maior ``Valor``.
+
+    O ``df`` deve estar na **mesma ordem** do grid da Recompra (ex.: ``preparar_df_para_rpa``).
+    Retorna o DataFrame atualizado (cópia), valor residual positivo ou ``0.00``, e metadados do
+    ajuste ou ``None``.
+    """
+    if df.empty:
+        return df, 0.00, None
+
+    out = df.copy()
+    out["Valor"] = pd.to_numeric(out["Valor"], errors="coerce")
+
+    if "Debito_Credito" not in out.columns:
+        raise ValueError("Coluna Debito_Credito ausente.")
+
+    dc = pd.to_numeric(out["Debito_Credito"].iloc[0], errors="coerce")
+    if pd.isna(dc):
+        dc = 0.0
+    diferenca = round(float(dc), 2)
+
+    posicao_maior = int(out["Valor"].values.argmax())
+    valor_original = float(out.iloc[posicao_maior]["Valor"])
+
+    if diferenca < 0:
+        novo_valor = round(valor_original + diferenca, 2)
+
+        print("--- Relatório de Ajuste ---")
+        print(f"Maior Valor (alvo): {valor_original} na posição (índice grid) {posicao_maior}")
+        print(f"Debito_Credito (diferença): {diferenca}")
+        print(f"Cálculo: {valor_original} + ({diferenca}) = {novo_valor}")
+        print("---------------------------")
+
+        out.iat[posicao_maior, out.columns.get_loc("Valor")] = novo_valor
+
+        return out, 0.00, {"posicao": posicao_maior, "valor": novo_valor}
+
+    return out, diferenca if diferenca > 0 else 0.00, None

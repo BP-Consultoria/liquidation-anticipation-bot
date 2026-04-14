@@ -14,6 +14,7 @@ import sys
 import psutil
 
 from utils.wba_helpers import (
+    calcular_ajuste_dinamico,
     codigo_cedente_unico,
     texto_historico_desagio_padrao,
     valor_monetario_wba_campo_float,
@@ -382,3 +383,64 @@ class WBA:
         janela_recompra.wait("visible", timeout=10)
         janela_recompra.set_focus()
         janela_recompra.child_window(title="Recalcular", control_type="Button").click()
+
+    def aplicar_ajuste_debito_credito_recompra(
+        self,
+        df: pd.DataFrame,
+        titulo_recompra: str = "Recompra (Carteira Própria)",
+        grid_pane_auto_id: str = "27459682",
+    ) -> pd.DataFrame:
+        """Se ``Debito_Credito`` for negativo, ajusta o maior ``Valor`` no grid da Recompra.
+
+        Deve rodar **logo após** ``recompra_carteira_propria`` (títulos inseridos) e **antes** de
+        ``inserir_desagio_apos_recompra`` (aba Liberação / dedução). ``df`` na ordem do grid;
+        posiciona na linha ``posicao``, coluna Pagamento, vírgula decimal. Se ``Debito_Credito``
+        ≥ 0, só devolve o ``df`` calculado, sem automação de teclado.
+        """
+        if not hasattr(self, "app") or self.app is None:
+            raise RuntimeError("Application not started; call start_wba_application first.")
+
+        df_out, residual, ajuste = calcular_ajuste_dinamico(df)
+
+        if not ajuste:
+            if residual > 0:
+                print(f"[WBA] Debito_Credito positivo ({residual}); sem edição no grid.")
+            else:
+                print("[WBA] Debito_Credito ≥ 0; sem ajuste no grid.")
+            return df_out
+
+        app = self.app
+        janela_recompra = app.window(title=titulo_recompra)
+        janela_recompra.wait("visible", timeout=10)
+        janela_recompra.set_focus()
+
+        grid_pane = janela_recompra.child_window(
+            auto_id=grid_pane_auto_id, control_type="Pane"
+        )
+        rect = grid_pane.rectangle()
+        pyautogui.click(rect.left + 50, rect.top + 30)
+        time.sleep(0.5)
+
+        for _ in range(ajuste["posicao"]):
+            janela_recompra.type_keys("{DOWN}")
+            time.sleep(0.1)
+
+        for _ in range(3):
+            janela_recompra.type_keys("{RIGHT}")
+            time.sleep(0.1)
+
+        valor_str = f"{ajuste['valor']:.2f}".replace(".", ",")
+        janela_recompra.type_keys("^a{BACKSPACE}")
+        janela_recompra.type_keys(valor_str + "{ENTER}")
+
+        print(
+            f"[WBA] Ajuste na linha {ajuste['posicao'] + 1} do grid, valor: {valor_str}"
+        )
+
+        janela_atencao = janela_recompra.child_window(
+            title="Atenção", control_type="Window"
+        )
+        janela_atencao.wait("visible", timeout=10)
+        janela_atencao.child_window(title="OK", control_type="Button").click()
+
+        return df_out
