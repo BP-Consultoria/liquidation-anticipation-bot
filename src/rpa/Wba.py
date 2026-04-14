@@ -301,3 +301,84 @@ class WBA:
             if not is_last:
                 janela_busca = app.window(title="Busca Avançada")
                 janela_busca.wait("visible", timeout=10)
+
+    def inserir_desagio_apos_recompra(
+        self,
+        codigo_busca: str = "7-COM",
+        titulo_recompra: str = "Recompra (Carteira Própria)",
+        titulo_deducao: str = "Dedução do Contas a Pagar",
+    ) -> None:
+        """Após ``recompra_carteira_propria``: aba Liberação (data do dia), dedução 7-COM e Recalcular.
+
+        A data digitada no WBA é sempre a **data atual** (formato ``DDMMYYYY``).
+        """
+        if not hasattr(self, "app") or self.app is None:
+            raise RuntimeError("Application not started; call start_wba_application first.")
+
+        app = self.app
+
+        d = date.today()
+        data_inserir = f"{d.day:02d}{d.month:02d}{d.year}"
+
+        janela_recompra = app.window(title=titulo_recompra)
+        janela_recompra.wait("visible", timeout=10)
+        janela_recompra.set_focus()
+
+        aba_liberacao = janela_recompra.child_window(title="Liberação", control_type="TabItem")
+        aba_liberacao.click_input()
+        time.sleep(0.5)
+
+        janela_recompra.type_keys("{TAB}")
+        time.sleep(0.1)
+        janela_recompra.type_keys("^a{BACKSPACE}")
+        janela_recompra.type_keys(data_inserir + "{ENTER}")
+
+        janela_recompra.type_keys("{TAB}")
+        janela_recompra.type_keys("{TAB}")
+        janela_recompra.type_keys("{ENTER}")
+
+        print(f"Data {data_inserir} inserida com sucesso na aba Liberação.")
+
+        janela_deducao = app.window(title=titulo_deducao)
+        janela_deducao.wait("visible", timeout=10)
+        janela_deducao.child_window(title="Selecionar...", control_type="Button").click()
+
+        janela_busca = app.window(title="Busca Avançada")
+        janela_busca.wait("visible", timeout=10)
+
+        todos = janela_busca.descendants(title="Todos", control_type="CheckBox")
+        todos[1].click()
+        self.press_keys("{TAB}", 4)
+        time.sleep(0.5)
+
+        janela_busca.type_keys("{UP}")
+        time.sleep(0.3)
+
+        self.press_keys("{TAB}", 1)
+        time.sleep(0.3)
+
+        janela_busca.type_keys("^a{BACKSPACE}")
+        janela_busca.type_keys(codigo_busca)
+        rect = janela_busca.rectangle()
+        janela_busca.type_keys("{ENTER}")
+        time.sleep(0.5)
+        pyautogui.click(rect.left + 50, rect.top + 30)
+
+        janela_selecao = app.window(title="Seleção de títulos a Pagar (Carteira Própria)")
+        janela_selecao.wait("visible", timeout=10)
+        janela_selecao.child_window(title="Pagar", control_type="Button").click()
+
+        janela_deducao = app.window(title=titulo_deducao)
+        janela_deducao.wait("visible", timeout=10)
+        janela_deducao.child_window(title="Fechar", control_type="Button", found_index=0).click()
+
+        janela_deducao = app.window(title=titulo_deducao)
+        janela_deducao.wait("visible", timeout=10)
+        janela_deducao.child_window(title="Fechar", control_type="Button", found_index=0).click()
+
+        time.sleep(2)
+
+        janela_recompra = app.window(title=titulo_recompra)
+        janela_recompra.wait("visible", timeout=10)
+        janela_recompra.set_focus()
+        janela_recompra.child_window(title="Recalcular", control_type="Button").click()
