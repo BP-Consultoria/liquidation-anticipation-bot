@@ -181,3 +181,123 @@ class WBA:
         janela = app.window(title="Manutenção do Fluxo de Caixa (Carteira Própria)")
         janela.wait("ready", timeout=10)
         janela.child_window(title="Fechar", control_type="Button").click()
+
+    def recompra_carteira_propria(
+        self,
+        df: pd.DataFrame,
+        imagem_path: str = r"C:\Users\suporte\Documents\imagens\novo.png",
+        selectall_path: str = r"C:\Users\suporte\Documents\imagens\selectall_button.png",
+        titulo_janela_principal: str = "WBA Securitização - Versão: 24.7.1 (Build: 6847)",
+        confidence: float = 0.8,
+    ) -> None:
+        """Recompra (Carteira Própria): informa código do cedente e inclui cada ``Titulo`` do ``df`` na busca."""
+        if not hasattr(self, "app") or self.app is None:
+            raise RuntimeError("Application not started; call start_wba_application first.")
+        if "Titulo" not in df.columns:
+            raise ValueError("DataFrame deve conter a coluna 'Titulo'.")
+
+        codigo_str = str(codigo_cedente_unico(df))
+        titulos = df["Titulo"].tolist()
+        if not titulos:
+            raise ValueError("Nenhum título no DataFrame.")
+
+        app = self.app
+        janela = app.window(title=titulo_janela_principal)
+        janela.wait("visible", timeout=10)
+        janela.set_focus()
+
+        botao = janela.child_window(auto_id="BotaoRegresso", control_type="Image").wrapper_object()
+        botao.click_input()
+
+        time.sleep(3)
+        janela = app.window(title="Recompra (Carteira Própria)")
+
+        posicao = pyautogui.locateCenterOnScreen(imagem_path, confidence=confidence)
+        if not posicao:
+            raise RuntimeError("Imagem salvar não encontrada na tela.")
+
+        pyautogui.click(posicao)
+
+        janela.type_keys(codigo_str)
+        janela.type_keys("{TAB}")
+
+        janela = app.window(title="Alertas")
+        time.sleep(4)
+        janela.child_window(title="Fechar", control_type="Button", found_index=0).click()
+
+        janela = app.window(title="Recompra (Carteira Própria)")
+
+        time.sleep(1)
+        janela.type_keys("{TAB}")
+        time.sleep(1)
+        janela.type_keys("0")
+        time.sleep(1)
+        janela.type_keys("{TAB}")
+        time.sleep(1)
+        janela.type_keys("0")
+        time.sleep(1)
+        janela.type_keys("{TAB}")
+        time.sleep(1)
+        janela.type_keys("0")
+        time.sleep(1)
+        janela.type_keys("{TAB}")
+        time.sleep(1)
+        janela.type_keys("0")
+        time.sleep(1)
+        janela.type_keys("{TAB}")
+        time.sleep(1)
+
+        janela.type_keys("{ENTER}")
+
+        janela_busca = app.window(title="Busca Avançada")
+
+        for i, titulo in enumerate(titulos):
+            is_last = i == len(titulos) - 1
+            todos = janela_busca.descendants(title="Todos", control_type="CheckBox")
+            todos[1].click()
+            self.press_keys("{TAB}", 4)
+            time.sleep(0.5)
+
+            janela_busca.type_keys("{UP}")
+            time.sleep(0.3)
+
+            self.press_keys("{TAB}", 1)
+            time.sleep(0.3)
+
+            janela_busca.type_keys("^a{BACKSPACE}")
+            janela_busca.type_keys(str(titulo))
+            janela_busca.type_keys("{ENTER}")
+
+            janela_selecao = app.window(title="Seleção de títulos a Recomprar (Carteira Própria)")
+            janela_selecao.wait("visible", timeout=10)
+
+            time.sleep(4)
+
+            posicao_sel = pyautogui.locateCenterOnScreen(selectall_path, confidence=confidence)
+            if not posicao_sel:
+                raise RuntimeError(f"Imagem Select All não encontrada para título {titulo}")
+
+            pyautogui.click(posicao_sel)
+
+            time.sleep(1)
+
+            janela_selecao.child_window(title="Recomprar", control_type="Button").click()
+
+            time.sleep(1)
+
+            janela_recompra = app.window(title="Recompra (Carteira Própria)")
+            janela_recompra.wait("visible", timeout=10)
+            janela_recompra.set_focus()
+
+            if not is_last:
+                janela_recompra.type_keys("{ENTER}")
+            else:
+                time.sleep(1)
+                btn_recalcular = janela_recompra.child_window(title="Recalcular", control_type="Button")
+                btn_recalcular.click()
+
+            time.sleep(2)
+
+            if not is_last:
+                janela_busca = app.window(title="Busca Avançada")
+                janela_busca.wait("visible", timeout=10)

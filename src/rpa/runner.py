@@ -184,6 +184,7 @@ def run():
             wba.login()
             for df_lote in dfs_final:
                 wba.lancar_desagio_contas_lancamentos(df_lote)
+                wba.recompra_carteira_propria(df_lote)
         finally:
             wba.close_wba_application()
 
