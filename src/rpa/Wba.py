@@ -16,7 +16,7 @@ import psutil
 from utils.wba_helpers import (
     codigo_cedente_unico,
     texto_historico_desagio_padrao,
-    valor_monetario_br,
+    valor_monetario_wba_campo_float,
     valor_total_desagio_unico,
 )
 
@@ -134,7 +134,7 @@ class WBA:
             data_referencia_historico
         )
 
-        valor_str = valor_monetario_br(valor_total_desagio_unico(df))
+        valor_str = valor_monetario_wba_campo_float(valor_total_desagio_unico(df))
         codigo_cedente_str = str(codigo_cedente_unico(df))
 
         app = self.app

@@ -15,6 +15,14 @@ def valor_monetario_br(valor: float) -> str:
     return f"-{corpo}" if neg else corpo
 
 
+def valor_monetario_wba_campo_float(valor: float) -> str:
+    """Campo numérico do WBA que valida como float: sem separador de milhar, ponto decimal."""
+    neg = valor < 0
+    v = abs(valor)
+    s = f"{v:.2f}"
+    return f"-{s}" if neg else s
+
+
 def mes_abreviatura_pt_br(mes: int) -> str:
     """Retorna abreviação de 3 letras do mês (JAN … DEZ). ``mes``: 1–12."""
     abrev = (
