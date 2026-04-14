@@ -17,6 +17,7 @@ from utils.wba_helpers import (
     codigo_cedente_unico,
     texto_historico_desagio_padrao,
     valor_monetario_br,
+    valor_total_desagio_unico,
 )
 
 
@@ -108,7 +109,6 @@ class WBA:
     def lancar_desagio_contas_lancamentos(
         self,
         df: pd.DataFrame,
-        total_desagio: float,
         imagem_open_titulo: str = r"C:\Users\suporte\Documents\imagens\open_titulo.png",
         imagem_salvar: str = r"C:\Users\suporte\Documents\imagens\salvar.png",
         titulo_janela_principal: str = "WBA Securitização - Versão: 24.7.1 (Build: 6847)",
@@ -120,8 +120,9 @@ class WBA:
     ) -> None:
         """Contas → Lançamentos: lança deságio na Manutenção do Fluxo de Caixa (Carteira Própria).
 
-        ``total_desagio`` é o valor já calculado no runner (soma do deságio do cedente).
-        ``df`` é o lote de um único cedente (usa ``codigo_cedente`` do DataFrame).
+        O valor digitado no WBA é **um único** ``Valor_Total_Desagio`` (primeiro valor válido da coluna;
+        não soma — o banco repete o mesmo número em cada linha do lote).
+        ``df`` é o lote de um único cedente (``codigo_cedente`` no DataFrame).
 
         Se ``texto_historico`` for omitido, usa ``texto_historico_desagio_padrao(data_referencia_historico)``
         (mês abreviado + ano dinâmicos).
@@ -133,7 +134,7 @@ class WBA:
             data_referencia_historico
         )
 
-        valor_str = valor_monetario_br(float(total_desagio))
+        valor_str = valor_monetario_br(valor_total_desagio_unico(df))
         codigo_cedente_str = str(codigo_cedente_unico(df))
 
         app = self.app

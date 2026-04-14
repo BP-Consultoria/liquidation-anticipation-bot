@@ -58,7 +58,8 @@ class DatabaseService:
             "SELECT "
             "    a.Bordero, a.Cedente, a.Sacado, a.Titulo, a.Valor, "
             "    a.Emissao, a.created_at, a.Vencimento, "
-            "    b.Valor_Liquido, b.Valor_Liquido_Final "
+            "    b.Valor_Liquido, b.Valor_Liquido_Final, "
+            "    b.Valor_Total_Desagio, b.Debito_Credito "
             "FROM anticipation_db.dbo.anticipation_db AS a "
             "INNER JOIN anticipation_db.dbo.borderos AS b "
             "    ON a.Bordero = b.Bordero "
@@ -68,7 +69,8 @@ class DatabaseService:
             "    AND a.created_at >= CAST(GETDATE() AS DATE) "
             "    AND a.created_at < DATEADD(DAY, 1, CAST(GETDATE() AS DATE)) "
             f"    AND a.Cedente IN ({placeholders}) "
-            "    AND b.Valor_Liquido_Final IS NOT NULL"
+            "    AND b.Valor_Liquido_Final IS NOT NULL "
+            "    AND b.Valor_Total_Desagio IS NOT NULL"
         )
 
         cursor = self._conn.cursor()

@@ -1,7 +1,6 @@
 import pandas as pd
 
 from services.database import db_service
-from services.desagio import calcular_desagio, obter_dias_antecipacao
 from utils.extrair_extratos import (
     CONTAS, renovar_token, consultar_extrato, buscar_valor_liquido,
 )
@@ -141,50 +140,24 @@ def run():
         df = db_service.buscar_dados_para_rpa(cedentes_atualizados)
         df["codigo_cedente"] = df["Cedente"].apply(buscar_codigo_cedente)
 
-        # 7. Recalcular deságio por cedente (total usado no WBA; não persiste valor_desagio no DF)
-        print("\n[DESAGIO] Recalculando deságio dos títulos...")
-        _COLS_CALC_INTERNO = ("valor_desagio", "fator", "diferenca_dias", "dtpgto")
+        # 7. Lotes por cedente — Valor_Total_Desagio é o mesmo em todas as linhas; usa um único valor
+        print("\n[RPA] Agrupando por cedente (Valor_Total_Desagio no banco)...")
         dfs_final = []
-        lotes_wba: list[tuple[pd.DataFrame, float]] = []
 
         for cedente, group in df.groupby("Cedente"):
-            sacado = str(group["Sacado"].iloc[0])
-            dias_regra = obter_dias_antecipacao(str(cedente), sacado)
-            prazo_minimo = dias_regra if dias_regra is not None else 0
-
-            df_calc = group.rename(columns={
-                "Bordero": "bordero",
-                "Titulo": "titulo",
-                "Emissao": "emissao",
-                "Vencimento": "vencimento",
-            })
-
-            df_desagio = calcular_desagio(df_calc, prazo_minimo=prazo_minimo)
-
-            if df_desagio.empty:
-                print(f"  {cedente}: nenhum título elegível para deságio")
+            vals = pd.to_numeric(group["Valor_Total_Desagio"], errors="coerce").dropna()
+            um_valor = float(vals.iloc[0]) if len(vals) else 0.0
+            if um_valor <= 0:
+                print(f"  {cedente}: Valor_Total_Desagio ausente ou zero — pulando.")
                 continue
 
-            df_desagio = df_desagio.rename(columns={
-                "bordero": "Bordero",
-                "titulo": "Titulo",
-                "emissao": "Emissao",
-                "vencimento": "Vencimento",
-            })
+            print(f"  {cedente}: {len(group)} título(s) | Valor_Total_Desagio (1 valor, banco): R$ {um_valor:,.2f}")
 
-            total_desagio = float(df_desagio["valor_desagio"].sum())
-            print(f"  {cedente}: {len(df_desagio)} títulos | Deságio total: R$ {total_desagio:,.2f}")
-
-            df_desagio = df_desagio.drop(
-                columns=[c for c in _COLS_CALC_INTERNO if c in df_desagio.columns],
-                errors="ignore",
-            )
-            df_prep = preparar_df_para_rpa(df_desagio.copy())
+            df_prep = preparar_df_para_rpa(group.copy())
             dfs_final.append(df_prep)
-            lotes_wba.append((df_prep, total_desagio))
 
         if not dfs_final:
-            print("\n[FLOW] Nenhum título elegível para deságio. RPA não será iniciado.")
+            print("\n[FLOW] Nenhum cedente com Valor_Total_Desagio válido. RPA não será iniciado.")
             return
 
         df_concat = pd.concat(dfs_final, ignore_index=True)
@@ -198,17 +171,19 @@ def run():
             "Valor",
             "Valor_Liquido",
             "Valor_Liquido_Final",
+            "Valor_Total_Desagio",
+            "Debito_Credito",
         ]
         cols_show = [c for c in cols_show if c in df_concat.columns]
         print(f"\n[RPA] {len(df_concat)} títulos prontos para liquidar:")
         print(df_concat[cols_show].to_string(index=False))
 
-        # RPA WBA: um lançamento por cedente (total_desagio calculado acima)
+        # RPA WBA: um lançamento por cedente (valor único lido de Valor_Total_Desagio no próprio df)
         wba = WBA()
         try:
             wba.login()
-            for df_lote, total_desagio in lotes_wba:
-                wba.lancar_desagio_contas_lancamentos(df_lote, total_desagio=total_desagio)
+            for df_lote in dfs_final:
+                wba.lancar_desagio_contas_lancamentos(df_lote)
         finally:
             wba.close_wba_application()
 

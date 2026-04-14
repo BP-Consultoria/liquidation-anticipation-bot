@@ -35,6 +35,19 @@ def texto_historico_desagio_padrao(data_ref: date | None = None) -> str:
     return f"7-DESAGIO ANT MDIAS-{mes_str}/{d.year}"
 
 
+def valor_total_desagio_unico(df: pd.DataFrame) -> float:
+    """Lê **um** valor de ``Valor_Total_Desagio`` (o mesmo em todas as linhas do lote; não soma)."""
+    if "Valor_Total_Desagio" not in df.columns:
+        raise ValueError("Coluna Valor_Total_Desagio ausente.")
+    vals = pd.to_numeric(df["Valor_Total_Desagio"], errors="coerce").dropna()
+    if vals.empty:
+        raise ValueError("Valor_Total_Desagio vazio ou inválido.")
+    v = float(vals.iloc[0])
+    if v <= 0:
+        raise ValueError("Valor_Total_Desagio deve ser > 0.")
+    return v
+
+
 def codigo_cedente_unico(df: pd.DataFrame) -> int:
     """Valida um único ``codigo_cedente`` no lote (um cedente por DataFrame) e retorna o código."""
     if df.empty:
