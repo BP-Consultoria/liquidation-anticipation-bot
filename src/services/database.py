@@ -31,7 +31,7 @@ class DatabaseService:
 
         cursor = self._conn.cursor()
         cursor.execute(
-            "SELECT "
+           "SELECT "
             "    a.Bordero, a.Cedente, a.Titulo, a.Valor, "
             "    a.Is_inserted, a.Control_id, a.Is_send, "
             "    a.Titulo_Completo, a.created_at, a.Vencimento, "
@@ -42,8 +42,8 @@ class DatabaseService:
             "WHERE "
             "    a.Is_inserted = 1 "
             "    AND a.Control_id = 4 "
-            "    AND a.created_at >= CAST(GETDATE() AS DATE) "
-            "    AND a.created_at < DATEADD(DAY, 1, CAST(GETDATE() AS DATE))"
+            "    AND a.created_at >= '2026-04-14' "
+            "    AND a.created_at < DATEADD(DAY, 1, '2026-04-14')"
         )
         colunas = [col[0] for col in cursor.description]
         linhas = cursor.fetchall()
@@ -54,6 +54,7 @@ class DatabaseService:
             raise ConnectionError("Conexão não estabelecida. Chame conectar() primeiro.")
 
         placeholders = ",".join("?" for _ in cedentes)
+
         query = (
             "SELECT "
             "    a.Bordero, a.Cedente, a.Sacado, a.Titulo, a.Valor, "
@@ -66,8 +67,8 @@ class DatabaseService:
             "WHERE "
             "    a.Is_inserted = 1 "
             "    AND a.Control_id = 4 "
-            "    AND a.created_at >= CAST(GETDATE() AS DATE) "
-            "    AND a.created_at < DATEADD(DAY, 1, CAST(GETDATE() AS DATE)) "
+            "    AND a.created_at >= '2026-04-14 00:00:00' "
+            "    AND a.created_at < '2026-04-15 00:00:00' "
             f"    AND a.Cedente IN ({placeholders}) "
             "    AND b.Valor_Liquido_Final IS NOT NULL "
             "    AND b.Valor_Total_Desagio IS NOT NULL"
@@ -75,8 +76,10 @@ class DatabaseService:
 
         cursor = self._conn.cursor()
         cursor.execute(query, cedentes)
+
         colunas = [col[0] for col in cursor.description]
         linhas = cursor.fetchall()
+
         return pd.DataFrame([dict(zip(colunas, row)) for row in linhas])
 
     def atualizar_valor_liquido(self, numero_bordero: int, valor: float):

@@ -9,6 +9,10 @@ PROJECT_PATH = Path(__file__).resolve().parent.parent.parent  # raiz do projeto
 YAML_PATH = PROJECT_PATH / "auth" / "paramenters.yml"
 BASE_URL = "https://gapp.bancoarbi.com.br"
 
+# 🔥 DATA FIXA
+DATA_API = "2026-04-14"
+DATA_BR = "14/04/2026"
+
 CONTAS = {
     '0003717752': "IG TRANSPORTES LTDA",
     '0003715768': "TEC TRANSPORTES LTDA",
@@ -143,13 +147,13 @@ def chamar_api_arbi(idrequisicao, conta, idtransacao, datainicial, datafinal):
 
 
 def consultar_extrato(conta):
-    dia_atual = datetime.now().strftime("%Y-%m-%d")
-    return chamar_api_arbi(gerar_idrequisicao(), conta, 4, dia_atual, dia_atual)
+    #dia_atual = datetime.now().strftime("%Y-%m-%d")
+    return chamar_api_arbi(gerar_idrequisicao(), conta, 4, DATA_API, DATA_API)
 
 
 def consultar_saldo(conta):
-    dia_atual = datetime.now().strftime("%Y-%m-%d")
-    return chamar_api_arbi(gerar_idrequisicao(), conta, 3, dia_atual, dia_atual)
+    #dia_atual = datetime.now().strftime("%Y-%m-%d")
+    return chamar_api_arbi(gerar_idrequisicao(), conta, 3, DATA_API, DATA_API)
 
 
 # ──────────────────────────────────────────────
@@ -177,14 +181,15 @@ def parsear_movimentacoes(dados_api):
     if not dados_api or dados_api[0].get("descricaostatus") != "Sucesso":
         return []
 
-    dia_atual = datetime.now().strftime("%d/%m/%Y")
+    #dia_atual = datetime.now().strftime("%d/%m/%Y")
+    dia_atual = "14/04/2026"
 
     movimentacoes = []
     for item in dados_api:
         try:
             resultado = ast.literal_eval(item["resultado"])
 
-            if resultado.get("datamovimento", "") != dia_atual:
+            if resultado.get("datamovimento", "") != DATA_BR:
                 continue
 
             historico = resultado.get("historico", "")
