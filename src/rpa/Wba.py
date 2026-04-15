@@ -423,48 +423,43 @@ class WBA:
         janela_recompra.wait("visible", timeout=10)
         janela_recompra.set_focus()
 
-        # 2. Automação
-        janela_recompra = app.window(title="Recompra (Carteira Própria)")
-        janela_recompra.set_focus()
-
-        # 🔥 GARANTE que aba Títulos está ativa
-        janela_recompra.child_window(
+        # Ativa aba Títulos explicitamente
+        tab_titulos = janela_recompra.child_window(
             title="Títulos",
             control_type="TabItem"
         )
+        tab_titulos.click_input()
 
-        tab = janela_recompra.child_window(title="Títulos", control_type="TabItem")
-        tab.click_input()
-
-        time.sleep(0.8)
-
+        time.sleep(1)
+        
         janela_recompra.set_focus()
-        janela_recompra.type_keys("{TAB}")
 
-        rect = janela_recompra.rectangle()
+        # Agora para exatamente na área da data / início da grid
+        self.press_keys("{TAB}", 7)
+        time.sleep(0.5)
 
-        # recalcula baseado no centro da aba
-        x = rect.mid_point().x
-        y = rect.bottom + 45
-
-        janela_recompra.click_input(coords=(x, y))
+        self.press_keys("{ENTER}", 1)
         time.sleep(0.5)
 
         for _ in range(ajuste["posicao"]):
             janela_recompra.type_keys("{DOWN}")
-            time.sleep(0.1)
+            time.sleep(1)
 
         for _ in range(3):
             janela_recompra.type_keys("{RIGHT}")
-            time.sleep(0.1)
+            time.sleep(1)
 
         valor_str = f"{ajuste['valor']:.2f}".replace(".", ",")
+        time.sleep(1)
         janela_recompra.type_keys("^a{BACKSPACE}")
+        time.sleep(1)
         janela_recompra.type_keys(valor_str + "{ENTER}")
 
         print(
             f"[WBA] Ajuste na linha {ajuste['posicao'] + 1} do grid, valor: {valor_str}"
         )
+        
+        time.sleep(1)
 
         janela_atencao = janela_recompra.child_window(
             title="Atenção", control_type="Window"
