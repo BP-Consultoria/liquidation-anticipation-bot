@@ -195,8 +195,8 @@ def run():
             for df_lote in dfs_final:
                 wba.lancar_desagio_contas_lancamentos(df_lote)
                 wba.recompra_carteira_propria(df_lote)
-                df_lote = wba.aplicar_ajuste_debito_credito_recompra(df_lote)
                 wba.inserir_desagio_apos_recompra()
+                df_lote = wba.aplicar_ajuste_debito_credito_recompra(df_lote)
         finally:
             wba.close_wba_application()
 

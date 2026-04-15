@@ -322,48 +322,62 @@ class WBA:
         data_inserir = f"{d.day:02d}{d.month:02d}{d.year}"
 
         janela_recompra = app.window(title=titulo_recompra)
-        janela_recompra.wait("visible", timeout=10)
         janela_recompra.set_focus()
 
         aba_liberacao = janela_recompra.child_window(title="Liberação", control_type="TabItem")
         aba_liberacao.click_input()
-        time.sleep(0.5)
+        time.sleep(1)
 
-        janela_recompra.type_keys("{TAB}")
-        time.sleep(0.1)
+        self.press_keys("{TAB}", 8)
+        time.sleep(1)
         janela_recompra.type_keys("^a{BACKSPACE}")
+        time.sleep(1)
         janela_recompra.type_keys(data_inserir + "{ENTER}")
+        time.sleep(1)
 
-        janela_recompra.type_keys("{TAB}")
-        janela_recompra.type_keys("{TAB}")
+        self.press_keys("{TAB}", 2)
+        time.sleep(1)
         janela_recompra.type_keys("{ENTER}")
+        time.sleep(1)
 
         print(f"Data {data_inserir} inserida com sucesso na aba Liberação.")
 
         janela_deducao = app.window(title=titulo_deducao)
         janela_deducao.wait("visible", timeout=10)
+        time.sleep(1)
         janela_deducao.child_window(title="Selecionar...", control_type="Button").click()
 
         janela_busca = app.window(title="Busca Avançada")
         janela_busca.wait("visible", timeout=10)
-
+        
         todos = janela_busca.descendants(title="Todos", control_type="CheckBox")
         todos[1].click()
         self.press_keys("{TAB}", 4)
-        time.sleep(0.5)
+        time.sleep(1)
 
         janela_busca.type_keys("{UP}")
-        time.sleep(0.3)
+        time.sleep(1)
 
         self.press_keys("{TAB}", 1)
-        time.sleep(0.3)
+        time.sleep(1)
 
         janela_busca.type_keys("^a{BACKSPACE}")
+        time.sleep(1)
         janela_busca.type_keys(codigo_busca)
         rect = janela_busca.rectangle()
         janela_busca.type_keys("{ENTER}")
         time.sleep(0.5)
-        pyautogui.click(rect.left + 50, rect.top + 30)
+        
+        janela_selecao = app.window(title="Seleção de títulos a Pagar (Carteira Própria)")
+        
+        grid = janela_selecao.child_window(control_type="Pane", found_index=0)  # ajuste se necessário
+        rect = grid.rectangle()
+
+        # Clica na primeira célula da primeira linha (coluna Data)
+        pyautogui.click(
+            x=rect.left + 40,
+            y=rect.top + 25
+        )
 
         janela_selecao = app.window(title="Seleção de títulos a Pagar (Carteira Própria)")
         janela_selecao.wait("visible", timeout=10)
@@ -372,11 +386,7 @@ class WBA:
         janela_deducao = app.window(title=titulo_deducao)
         janela_deducao.wait("visible", timeout=10)
         janela_deducao.child_window(title="Fechar", control_type="Button", found_index=0).click()
-
-        janela_deducao = app.window(title=titulo_deducao)
-        janela_deducao.wait("visible", timeout=10)
-        janela_deducao.child_window(title="Fechar", control_type="Button", found_index=0).click()
-
+        
         time.sleep(2)
 
         janela_recompra = app.window(title=titulo_recompra)
@@ -388,7 +398,6 @@ class WBA:
         self,
         df: pd.DataFrame,
         titulo_recompra: str = "Recompra (Carteira Própria)",
-        grid_pane_auto_id: str = "27459682",
     ) -> pd.DataFrame:
         """Se ``Debito_Credito`` for negativo, ajusta o maior ``Valor`` no grid da Recompra.
 
@@ -414,11 +423,31 @@ class WBA:
         janela_recompra.wait("visible", timeout=10)
         janela_recompra.set_focus()
 
-        grid_pane = janela_recompra.child_window(
-            auto_id=grid_pane_auto_id, control_type="Pane"
+        # 2. Automação
+        janela_recompra = app.window(title="Recompra (Carteira Própria)")
+        janela_recompra.set_focus()
+
+        # 🔥 GARANTE que aba Títulos está ativa
+        janela_recompra.child_window(
+            title="Títulos",
+            control_type="TabItem"
         )
-        rect = grid_pane.rectangle()
-        pyautogui.click(rect.left + 50, rect.top + 30)
+
+        tab = janela_recompra.child_window(title="Títulos", control_type="TabItem")
+        tab.click_input()
+
+        time.sleep(0.8)
+
+        janela_recompra.set_focus()
+        janela_recompra.type_keys("{TAB}")
+
+        rect = janela_recompra.rectangle()
+
+        # recalcula baseado no centro da aba
+        x = rect.mid_point().x
+        y = rect.bottom + 45
+
+        janela_recompra.click_input(coords=(x, y))
         time.sleep(0.5)
 
         for _ in range(ajuste["posicao"]):
