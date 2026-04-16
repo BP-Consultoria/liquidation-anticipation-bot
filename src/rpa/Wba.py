@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 import time
 import subprocess
 import pyautogui
+import pyperclip
 from pywinauto.application import Application
 from pywinauto.keyboard import send_keys
 from pywinauto import Desktop
@@ -14,8 +15,11 @@ import sys
 import psutil
 
 from utils.wba_helpers import (
+    atualizar_valor_no_df_por_identificador,
     calcular_ajuste_dinamico,
     codigo_cedente_unico,
+    normalizar_id_titulo_dcto,
+    texto_copiado_indica_dcto,
     texto_historico_desagio_padrao,
     valor_monetario_wba_campo_float,
     valor_total_desagio_unico,
@@ -394,36 +398,132 @@ class WBA:
         janela_recompra.set_focus()
         janela_recompra.child_window(title="Recalcular", control_type="Button").click()
 
+    def _type_keys_horizontal(self, janela, direcao: str, passos: int, delay: float) -> None:
+        tecla = "{LEFT}" if direcao.lower() == "left" else "{RIGHT}"
+        for _ in range(passos):
+            janela.type_keys(tecla)
+            time.sleep(delay)
+
+    def _grid_recompra_buscar_dcto_por_copia(
+        self,
+        janela_recompra,
+        dcto_alvo: str,
+        max_linhas: int,
+        delay_tecla_grid: float,
+        delay_apos_ctrl_c: float,
+    ) -> None:
+        """Com o foco já na coluna Dcto: em cada linha, Shift esquerdo+2 → Ctrl+C → compara; senão DOWN.
+
+        O Shift+2 usa a tecla **2** da fileira superior (VK + dígito 2), não o teclado numérico.
+        Pausas maiores evitam a grid “pular” linha antes do Ctrl+C. Ao achar o dcto, envia **Enter**
+        para sair do modo edição/cópia da célula antes das setas até o valor.
+        """
+        amostras: list[tuple[int, str]] = []
+        for linha in range(max_linhas):
+            janela_recompra.set_focus()
+            time.sleep(0.25)
+            janela_recompra.type_keys("{VK_LSHIFT down}2{VK_LSHIFT up}")
+            time.sleep(0.5)
+
+            janela_recompra.set_focus()
+            time.sleep(0.15)
+            janela_recompra.type_keys("^c")
+            time.sleep(delay_apos_ctrl_c)
+            bruto = pyperclip.paste()
+            if len(amostras) < 5:
+                amostras.append((linha + 1, repr((bruto or "")[:100])))
+
+            if texto_copiado_indica_dcto(bruto, dcto_alvo):
+                cop_curto = (bruto or "").replace("\n", " ")[:80]
+                print(
+                    f"[WBA] Dcto encontrado (linha ~{linha + 1}): alvo {dcto_alvo!r} "
+                    f"(trecho copiado: {cop_curto!r})"
+                )
+                janela_recompra.set_focus()
+                time.sleep(0.15)
+                janela_recompra.type_keys("{ENTER}")
+                time.sleep(0.4)
+                return
+
+            janela_recompra.type_keys("{DOWN}")
+            time.sleep(max(delay_tecla_grid, 0.55))
+
+        detalhe = "; ".join(f"linha~{a[0]}: {a[1]}" for a in amostras)
+        raise RuntimeError(
+            f"Dcto alvo {dcto_alvo!r} não encontrado após {max_linhas} linhas. "
+            "Confira setas até a coluna Dcto, Shift esquerdo+2 (fileira principal) e Ctrl+C. "
+            f"Amostras: {detalhe}"
+        )
+
     def aplicar_ajuste_debito_credito_recompra(
         self,
         df: pd.DataFrame,
         titulo_recompra: str = "Recompra (Carteira Própria)",
+        *,
+        coluna_identificador_grid: str = "Titulo",
+        dcto_documento: str | int | None = None,
+        valor_ajustado: float | None = None,
+        passos_horizontal_ate_dcto: int = 8,
+        direcao_horizontal_ate_dcto: str = "right",
+        passos_horizontal_ate_valor: int = 8,
+        delay_tecla_coluna_valor: float = 0.55,
+        delay_tecla_grid: float = 0.55,
+        delay_apos_ctrl_c: float = 1.1,
+        delay_antes_recalcular: float = 2.5,
     ) -> pd.DataFrame:
-        """Se ``Debito_Credito`` for negativo, ajusta o maior ``Valor`` no grid da Recompra.
+        """Se ``Debito_Credito`` for negativo, ajusta o valor na linha certa da grid (aba Títulos).
 
-        Deve rodar **logo após** ``recompra_carteira_propria`` (títulos inseridos) e **antes** de
-        ``inserir_desagio_apos_recompra`` (aba Liberação / dedução). ``df`` na ordem do grid;
-        posiciona na linha ``posicao``, coluna Pagamento, vírgula decimal. Se ``Debito_Credito``
-        ≥ 0, só devolve o ``df`` calculado, sem automação de teclado.
+        Deve rodar **depois** de ``inserir_desagio_apos_recompra`` (fluxo do ``runner``), com a
+        janela *Recompra (Carteira Própria)* ativa. Não usa mais contagem fixa de ``DOWN`` pela
+        posição no DataFrame: vai à coluna Dcto, em cada linha faz **Shift esquerdo + 2** (tecla 2
+        da fileira principal), **Ctrl+C** e compara com o dcto alvo; se não bater, **DOWN** e
+        repete. Depois **8× seta esquerda** até a coluna do valor, **Backspace** (limpa a célula)
+        e **Ctrl+V** com o valor do cálculo no clipboard (vírgula decimal). Fecha “Atenção”,
+        aguarda e clica **Recalcular**.
+
+        Modo **automático** (padrão): ``calcular_ajuste_dinamico``. **Explícito**: ``dcto_documento``
+        e ``valor_ajustado`` juntos. Se ``Debito_Credito`` ≥ 0, devolve o ``df`` sem teclado.
         """
         if not hasattr(self, "app") or self.app is None:
             raise RuntimeError("Application not started; call start_wba_application first.")
 
-        df_out, residual, ajuste = calcular_ajuste_dinamico(df)
+        explicito = dcto_documento is not None or valor_ajustado is not None
+        if explicito and (dcto_documento is None or valor_ajustado is None):
+            raise ValueError(
+                "Modo explícito: informe os dois, ``dcto_documento`` e ``valor_ajustado``."
+            )
 
-        if not ajuste:
-            if residual > 0:
-                print(f"[WBA] Debito_Credito positivo ({residual}); sem edição no grid.")
-            else:
-                print("[WBA] Debito_Credito ≥ 0; sem ajuste no grid.")
-            return df_out
+        if explicito:
+            dcto_norm = normalizar_id_titulo_dcto(dcto_documento)
+            valor_novo = round(float(valor_ajustado), 2)
+            df_out = atualizar_valor_no_df_por_identificador(
+                df,
+                coluna_identificador_grid,
+                dcto_documento,
+                valor_novo,
+            )
+            ajuste_valor = valor_novo
+            print(
+                f"[WBA] Ajuste explícito no df e na grid: dcto={dcto_norm!r}, valor={valor_novo}"
+            )
+        else:
+            df_out, residual, ajuste = calcular_ajuste_dinamico(
+                df, coluna_identificador_grid=coluna_identificador_grid
+            )
+            if not ajuste:
+                if residual > 0:
+                    print(f"[WBA] Debito_Credito positivo ({residual}); sem edição no grid.")
+                else:
+                    print("[WBA] Debito_Credito ≥ 0; sem ajuste no grid.")
+                return df_out
+            dcto_norm = str(ajuste["dcto_alvo"])
+            ajuste_valor = float(ajuste["valor"])
 
         app = self.app
         janela_recompra = app.window(title=titulo_recompra)
         janela_recompra.wait("visible", timeout=10)
         janela_recompra.set_focus()
 
-        # Ativa aba Títulos explicitamente
         tab_titulos = janela_recompra.child_window(
             title="Títulos",
             control_type="TabItem"
@@ -431,40 +531,69 @@ class WBA:
         tab_titulos.click_input()
 
         time.sleep(1)
-        
+
         janela_recompra.set_focus()
 
-        # Agora para exatamente na área da data / início da grid
         self.press_keys("{TAB}", 7)
-        time.sleep(0.5)
+        time.sleep(0.65)
 
         self.press_keys("{ENTER}", 1)
-        time.sleep(0.5)
+        time.sleep(0.65)
 
-        for _ in range(ajuste["posicao"]):
-            janela_recompra.type_keys("{DOWN}")
-            time.sleep(1)
-
-        for _ in range(3):
-            janela_recompra.type_keys("{RIGHT}")
-            time.sleep(1)
-
-        valor_str = f"{ajuste['valor']:.2f}".replace(".", ",")
-        time.sleep(1)
-        janela_recompra.type_keys("^a{BACKSPACE}")
-        time.sleep(1)
-        janela_recompra.type_keys(valor_str + "{ENTER}")
-
-        print(
-            f"[WBA] Ajuste na linha {ajuste['posicao'] + 1} do grid, valor: {valor_str}"
+        self._type_keys_horizontal(
+            janela_recompra,
+            direcao_horizontal_ate_dcto,
+            passos_horizontal_ate_dcto,
+            delay_tecla_grid,
         )
-        
-        time.sleep(1)
+
+        max_linhas = max(len(df) + 20, 60)
+        self._grid_recompra_buscar_dcto_por_copia(
+            janela_recompra,
+            dcto_norm,
+            max_linhas,
+            delay_tecla_grid,
+            delay_apos_ctrl_c,
+        )
+
+        janela_recompra.set_focus()
+        time.sleep(0.55)
+        self._type_keys_horizontal(
+            janela_recompra,
+            "left",
+            passos_horizontal_ate_valor,
+            delay_tecla_coluna_valor,
+        )
+
+        valor_str = f"{ajuste_valor:.2f}".replace(".", ",")
+        time.sleep(0.45)
+        janela_recompra.set_focus()
+        janela_recompra.type_keys("^a")
+        time.sleep(0.15)
+        janela_recompra.type_keys("{BACKSPACE}")
+        time.sleep(0.2)
+        pyperclip.copy(valor_str)
+        time.sleep(0.15)
+        janela_recompra.set_focus()
+        janela_recompra.type_keys("^v")
+        time.sleep(0.35)
+        janela_recompra.type_keys("{ENTER}")
+
+        print(f"[WBA] Valor colado (Ctrl+V): {valor_str} (dcto {dcto_norm})")
+
+        time.sleep(1.0)
 
         janela_atencao = janela_recompra.child_window(
             title="Atenção", control_type="Window"
         )
         janela_atencao.wait("visible", timeout=10)
         janela_atencao.child_window(title="OK", control_type="Button").click()
+
+        time.sleep(delay_antes_recalcular)
+        janela_recompra = app.window(title=titulo_recompra)
+        janela_recompra.wait("visible", timeout=15)
+        janela_recompra.set_focus()
+        janela_recompra.child_window(title="Recalcular", control_type="Button").click()
+        print("[WBA] Recalcular clicado após Atenção.")
 
         return df_out
