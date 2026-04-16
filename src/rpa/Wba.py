@@ -594,6 +594,7 @@ class WBA:
         janela_recompra.wait("visible", timeout=15)
         janela_recompra.set_focus()
         janela_recompra.child_window(title="Recalcular", control_type="Button").click()
+        time.sleep(3)
         print("[WBA] Recalcular clicado após Atenção.")
 
         return df_out
