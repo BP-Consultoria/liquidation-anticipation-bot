@@ -228,7 +228,9 @@ def calcular_financeiros_agregados_cedente(df_lote: pd.DataFrame) -> dict[str, f
     ``debito_credito`` = ``Valor_Liquido_Final`` (TED) menos (soma dos títulos − deságio total).
 
     **Obrigatório:** coluna ``Valor_Liquido_Final`` preenchida (não usa ``Valor_Liquido`` nem outro
-    substituto). Usa ``valor_desagio`` por linha quando existir; senão ``Valor_Total_Desagio``.
+    substituto). O total de deságio na fórmula vem de ``Valor_Total_Desagio`` (valor do banco na
+    primeira linha do lote) quando a coluna existir; só usa a soma de ``valor_desagio`` se não
+    houver ``Valor_Total_Desagio``.
     Valores monetários retornados com **duas casas decimais** (centavos).
     """
     if "Valor_Liquido_Final" not in df_lote.columns:
@@ -242,18 +244,20 @@ def calcular_financeiros_agregados_cedente(df_lote: pd.DataFrame) -> dict[str, f
     total_liquido = round(float(vlf_num), 2)
 
     total_titulos = round(float(pd.to_numeric(df_lote["Valor"], errors="coerce").sum()), 2)
-    if "valor_desagio" in df_lote.columns:
-        total_desagio = round(
-            float(pd.to_numeric(df_lote["valor_desagio"], errors="coerce").sum()),
-            2,
-        )
-    else:
+    if "Valor_Total_Desagio" in df_lote.columns:
         total_desagio = round(
             float(
                 pd.to_numeric(df_lote["Valor_Total_Desagio"].iloc[0], errors="coerce") or 0.0
             ),
             2,
         )
+    elif "valor_desagio" in df_lote.columns:
+        total_desagio = round(
+            float(pd.to_numeric(df_lote["valor_desagio"], errors="coerce").sum()),
+            2,
+        )
+    else:
+        total_desagio = 0.0
     total_titulos_desagio = round(total_titulos - total_desagio, 2)
     debito_credito = round(total_liquido - total_titulos_desagio, 2)
     return {

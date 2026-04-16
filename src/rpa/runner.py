@@ -117,8 +117,9 @@ def _aplicar_debito_credito_agregado_e_persistir(g: pd.DataFrame) -> pd.DataFram
     Só roda se existir ``Valor_Liquido_Final`` válido (líquido TED); caso contrário mantém o
     ``Debito_Credito`` vindo do banco e **não** grava agregado.
 
-    Em cada linha do ``df`` o ``Debito_Credito`` é o mesmo (valor agregado). No banco, cada
-    borderô recebe a **soma do deságio** só dos seus títulos e o **mesmo** ``Debito_Credito`` agregado.
+    Em cada linha do ``df`` o ``Debito_Credito`` é o mesmo (valor agregado). O total de deságio
+    na fórmula vem de ``Valor_Total_Desagio`` do banco; no SQL só ``Debito_Credito`` é atualizado
+    (``Valor_Total_Desagio`` não é alterado).
     """
     g = g.copy()
     if "Valor_Liquido_Final" not in g.columns:
@@ -140,17 +141,9 @@ def _aplicar_debito_credito_agregado_e_persistir(g: pd.DataFrame) -> pd.DataFram
         f"títulos−deságio={fin['total_titulos_desagio']:.2f} líquido={fin['total_liquido']:.2f} "
         f"Debito_Credito={dc}"
     )
-    for bordero, gb in g.groupby("Bordero", sort=False):
-        if "valor_desagio" in gb.columns:
-            vtd_b = float(pd.to_numeric(gb["valor_desagio"], errors="coerce").sum())
-        else:
-            vtd_b = float(
-                pd.to_numeric(gb["Valor_Total_Desagio"].iloc[0], errors="coerce") or 0.0
-            )
+    for bordero in g["Bordero"].unique():
         try:
-            db_service.atualizar_desagio_e_debito_credito(
-                int(bordero), round(float(vtd_b), 2), round(float(dc), 2)
-            )
+            db_service.atualizar_debito_credito(int(bordero), round(float(dc), 2))
         except Exception as exc:
             print(f"    [DB] Aviso: borderô {bordero} ({exc})")
     return g
@@ -200,8 +193,8 @@ def run():
         df = db_service.buscar_dados_para_rpa(cedentes_atualizados)
         df["codigo_cedente"] = df["Cedente"].apply(buscar_codigo_cedente)
 
-        # 7. Lotes por cedente — recalcula deságio (``services.desagio``); se falhar, usa Valor_Total_Desagio do banco
-        print("\n[RPA] Agrupando por cedente (deságio recalculado ou valor do banco)...")
+        # 7. Lotes por cedente — ``Valor_Total_Desagio`` do banco para DC/WBA; cálculo por título só informativo
+        print("\n[RPA] Agrupando por cedente (Valor_Total_Desagio do banco; DC recalculado)...")
         dfs_final = []
 
         for cedente, group in df.groupby("Cedente"):
@@ -226,37 +219,23 @@ def run():
                 print(f"  {cedente}: erro no cálculo de deságio ({exc}); usando Valor_Total_Desagio do banco.")
                 df_desagio = pd.DataFrame()
 
+            vals = pd.to_numeric(group["Valor_Total_Desagio"], errors="coerce").dropna()
+            um_valor = float(vals.iloc[0]) if len(vals) else 0.0
+            if um_valor <= 0:
+                print(f"  {cedente}: Valor_Total_Desagio ausente/zero — pulando.")
+                continue
+
             if df_desagio.empty:
-                vals = pd.to_numeric(group["Valor_Total_Desagio"], errors="coerce").dropna()
-                um_valor = float(vals.iloc[0]) if len(vals) else 0.0
-                if um_valor <= 0:
-                    print(f"  {cedente}: sem deságio calculado e Valor_Total_Desagio ausente/zero — pulando.")
-                    continue
                 print(
                     f"  {cedente}: {len(group)} título(s) | Valor_Total_Desagio (banco): R$ {um_valor:,.2f}"
                 )
-                g = group.copy()
             else:
-                total_desagio = float(df_desagio["valor_desagio"].sum())
-                df_keys = df_desagio.rename(
-                    columns={
-                        "bordero": "Bordero",
-                        "titulo": "Titulo",
-                    }
-                )
-                g = group.merge(
-                    df_keys[["Bordero", "Titulo", "valor_desagio"]],
-                    on=["Bordero", "Titulo"],
-                    how="inner",
-                )
-                if g.empty:
-                    print(f"  {cedente}: deságio calculado não casou com títulos do banco — pulando.")
-                    continue
-                g = g.drop(columns=["Valor_Total_Desagio"], errors="ignore")
-                g["Valor_Total_Desagio"] = round(total_desagio, 2)
+                ref_soma = float(df_desagio["valor_desagio"].sum())
                 print(
-                    f"  {cedente}: {len(g)} título(s) | Deságio recalculado (soma p/ WBA): R$ {total_desagio:,.2f}"
+                    f"  {cedente}: {len(group)} título(s) | Valor_Total_Desagio (banco): R$ {um_valor:,.2f} "
+                    f"(ref. cálculo por título: R$ {ref_soma:,.2f})"
                 )
+            g = group.copy()
 
             g = _aplicar_debito_credito_agregado_e_persistir(g)
             df_prep = preparar_df_para_rpa(g)
