@@ -177,10 +177,11 @@ def calcular_desagio(
     prazo_minimo: int,
     coluna_valor_base: str = "Valor",
 ) -> pd.DataFrame:
-    """Calcula ``valor_desagio`` por linha a partir do fator e prazos.
+    """Calcula ``valor_desagio`` por linha a partir do fator e prazos (arredondado a 2 decimais).
 
-    ``coluna_valor_base``: base monetária do deságio por título. No fluxo RPA após o Arbi,
-    use ``Valor_Liquido_Final`` (líquido TED atualizado) em vez de ``Valor`` (face).
+    ``coluna_valor_base``: base monetária do deságio **por título** (típico: ``Valor`` de face).
+    Não use ``Valor_Liquido_Final`` aqui: o líquido TED entra só no cálculo agregado de
+    ``calcular_financeiros_agregados_cedente``.
     """
     df = df.copy()
 
@@ -215,23 +216,50 @@ def calcular_desagio(
     valor = ((df["fator"] / 100) / 30) * qt_dias * base
     valor = valor.clip(lower=0)
 
-    df["valor_desagio"] = valor
+    df["valor_desagio"] = np.round(valor.astype(float), 2)
     df = df[df["diferenca_dias"] > 0]
 
     return df
 
 
-def calcular_debito_credito_lote(
-    valor_liquido_final: float,
-    soma_valor_titulos: float,
-    valor_total_desagio: float,
-) -> float:
-    """Diferença entre o líquido TED e (soma dos valores de face − deságio total do lote).
+def calcular_financeiros_agregados_cedente(df_lote: pd.DataFrame) -> dict[str, float]:
+    """Mesma lógica do card do Teams: totais no **cedente** e um único ``Debito_Credito``.
 
-    ``Debito_Credito`` negativo indica que o líquido ficou **abaixo** do esperado com o deságio
-    aplicado (cenário tratado no ajuste da grid WBA).
+    ``debito_credito`` = ``Valor_Liquido_Final`` (TED) menos (soma dos títulos − deságio total).
+
+    **Obrigatório:** coluna ``Valor_Liquido_Final`` preenchida (não usa ``Valor_Liquido`` nem outro
+    substituto). Usa ``valor_desagio`` por linha quando existir; senão ``Valor_Total_Desagio``.
+    Valores monetários retornados com **duas casas decimais** (centavos).
     """
-    return round(
-        float(valor_liquido_final) - (float(soma_valor_titulos) - float(valor_total_desagio)),
-        2,
-    )
+    if "Valor_Liquido_Final" not in df_lote.columns:
+        raise ValueError("Coluna Valor_Liquido_Final ausente.")
+    vlf_raw = df_lote["Valor_Liquido_Final"].iloc[0]
+    if pd.isna(vlf_raw):
+        raise ValueError("Valor_Liquido_Final nulo na primeira linha do lote.")
+    vlf_num = pd.to_numeric(vlf_raw, errors="coerce")
+    if pd.isna(vlf_num):
+        raise ValueError("Valor_Liquido_Final inválido após conversão numérica.")
+    total_liquido = round(float(vlf_num), 2)
+
+    total_titulos = round(float(pd.to_numeric(df_lote["Valor"], errors="coerce").sum()), 2)
+    if "valor_desagio" in df_lote.columns:
+        total_desagio = round(
+            float(pd.to_numeric(df_lote["valor_desagio"], errors="coerce").sum()),
+            2,
+        )
+    else:
+        total_desagio = round(
+            float(
+                pd.to_numeric(df_lote["Valor_Total_Desagio"].iloc[0], errors="coerce") or 0.0
+            ),
+            2,
+        )
+    total_titulos_desagio = round(total_titulos - total_desagio, 2)
+    debito_credito = round(total_liquido - total_titulos_desagio, 2)
+    return {
+        "total_titulos": total_titulos,
+        "total_desagio": total_desagio,
+        "total_titulos_desagio": total_titulos_desagio,
+        "total_liquido": total_liquido,
+        "debito_credito": debito_credito,
+    }

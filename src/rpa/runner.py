@@ -2,8 +2,8 @@ import pandas as pd
 
 from services.database import db_service
 from services.desagio import (
-    calcular_debito_credito_lote,
     calcular_desagio,
+    calcular_financeiros_agregados_cedente,
     obter_dias_antecipacao,
 )
 from utils.extrair_extratos import (
@@ -111,23 +111,49 @@ def obter_valor_liquido_arbi_todos_cedentes(
     return resultado
 
 
-def _recalcular_debito_credito_e_persistir(g: pd.DataFrame) -> pd.DataFrame:
-    """Recalcula ``Debito_Credito`` por borderô e grava ``Valor_Total_Desagio`` + ``Debito_Credito`` no banco."""
-    partes: list[pd.DataFrame] = []
+def _aplicar_debito_credito_agregado_e_persistir(g: pd.DataFrame) -> pd.DataFrame:
+    """Um único ``Debito_Credito`` para todos os títulos do cedente (lógica Teams); grava no banco por borderô.
+
+    Só roda se existir ``Valor_Liquido_Final`` válido (líquido TED); caso contrário mantém o
+    ``Debito_Credito`` vindo do banco e **não** grava agregado.
+
+    Em cada linha do ``df`` o ``Debito_Credito`` é o mesmo (valor agregado). No banco, cada
+    borderô recebe a **soma do deságio** só dos seus títulos e o **mesmo** ``Debito_Credito`` agregado.
+    """
+    g = g.copy()
+    if "Valor_Liquido_Final" not in g.columns:
+        print("    [RPA] Débito/Crédito agregado não aplicado: falta Valor_Liquido_Final.")
+        return g
+    vlf_ser = pd.to_numeric(g["Valor_Liquido_Final"], errors="coerce")
+    if vlf_ser.isna().all():
+        print("    [RPA] Débito/Crédito agregado não aplicado: Valor_Liquido_Final só nulo.")
+        return g
+    try:
+        fin = calcular_financeiros_agregados_cedente(g)
+    except ValueError as exc:
+        print(f"    [RPA] Débito/Crédito agregado não aplicado: {exc}")
+        return g
+    dc = round(float(fin["debito_credito"]), 2)
+    g["Debito_Credito"] = dc
+    print(
+        f"    [RPA] Agregado: títulos={fin['total_titulos']:.2f} deságio={fin['total_desagio']:.2f} "
+        f"títulos−deságio={fin['total_titulos_desagio']:.2f} líquido={fin['total_liquido']:.2f} "
+        f"Debito_Credito={dc}"
+    )
     for bordero, gb in g.groupby("Bordero", sort=False):
-        gb = gb.copy()
-        vlf = float(pd.to_numeric(gb["Valor_Liquido_Final"].iloc[0], errors="coerce") or 0.0)
-        soma_val = float(pd.to_numeric(gb["Valor"], errors="coerce").sum())
-        vtd = float(pd.to_numeric(gb["Valor_Total_Desagio"].iloc[0], errors="coerce") or 0.0)
-        dc = calcular_debito_credito_lote(vlf, soma_val, vtd)
-        gb["Debito_Credito"] = dc
-        print(f"    Borderô {int(bordero)}: Debito_Credito recalculado = {dc}")
+        if "valor_desagio" in gb.columns:
+            vtd_b = float(pd.to_numeric(gb["valor_desagio"], errors="coerce").sum())
+        else:
+            vtd_b = float(
+                pd.to_numeric(gb["Valor_Total_Desagio"].iloc[0], errors="coerce") or 0.0
+            )
         try:
-            db_service.atualizar_desagio_e_debito_credito(int(bordero), vtd, dc)
+            db_service.atualizar_desagio_e_debito_credito(
+                int(bordero), round(float(vtd_b), 2), round(float(dc), 2)
+            )
         except Exception as exc:
-            print(f"    [DB] Aviso: não atualizou borderô {bordero} ({exc})")
-        partes.append(gb)
-    return pd.concat(partes, ignore_index=True)
+            print(f"    [DB] Aviso: borderô {bordero} ({exc})")
+    return g
 
 
 def run():
@@ -192,12 +218,10 @@ def run():
                 }
             )
 
+            # Deságio por título na base do **Valor** (face). ``Valor_Liquido_Final`` entra só no
+            # ``calcular_financeiros_agregados_cedente`` (líquido TED do lote inteiro).
             try:
-                df_desagio = calcular_desagio(
-                    df_calc,
-                    prazo_minimo,
-                    coluna_valor_base="Valor_Liquido_Final",
-                )
+                df_desagio = calcular_desagio(df_calc, prazo_minimo, coluna_valor_base="Valor")
             except Exception as exc:
                 print(f"  {cedente}: erro no cálculo de deságio ({exc}); usando Valor_Total_Desagio do banco.")
                 df_desagio = pd.DataFrame()
@@ -220,18 +244,21 @@ def run():
                         "titulo": "Titulo",
                     }
                 )
-                chaves = df_keys[["Bordero", "Titulo"]].drop_duplicates()
-                g = group.merge(chaves, on=["Bordero", "Titulo"], how="inner")
+                g = group.merge(
+                    df_keys[["Bordero", "Titulo", "valor_desagio"]],
+                    on=["Bordero", "Titulo"],
+                    how="inner",
+                )
                 if g.empty:
                     print(f"  {cedente}: deságio calculado não casou com títulos do banco — pulando.")
                     continue
                 g = g.drop(columns=["Valor_Total_Desagio"], errors="ignore")
-                g["Valor_Total_Desagio"] = total_desagio
+                g["Valor_Total_Desagio"] = round(total_desagio, 2)
                 print(
                     f"  {cedente}: {len(g)} título(s) | Deságio recalculado (soma p/ WBA): R$ {total_desagio:,.2f}"
                 )
 
-            g = _recalcular_debito_credito_e_persistir(g)
+            g = _aplicar_debito_credito_agregado_e_persistir(g)
             df_prep = preparar_df_para_rpa(g)
             dfs_final.append(df_prep)
 
