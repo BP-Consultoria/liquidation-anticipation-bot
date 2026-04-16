@@ -10,6 +10,7 @@ dependencies = [
     "python-dotenv>=1.0",
     "pywinauto>=0.6.8",
     "pandas>=2.2",
+    "numpy>=1.26",
     "sqlalchemy>=2.0",
     "pyodbc>=5.1",
     "requests>=2.32",

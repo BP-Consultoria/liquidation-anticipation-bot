@@ -97,5 +97,29 @@ class DatabaseService:
         self._conn.commit()
         print(f"[DB] Bordero {numero_bordero} atualizado com valor R$ {valor:.2f}")
 
+    def atualizar_desagio_e_debito_credito(
+        self,
+        numero_bordero: int,
+        valor_total_desagio: float,
+        debito_credito: float,
+    ) -> None:
+        if not self._conn:
+            raise ConnectionError("Conexão não estabelecida. Chame conectar() primeiro.")
+
+        cursor = self._conn.cursor()
+        cursor.execute(
+            "UPDATE [anticipation_db].[dbo].[borderos] "
+            "SET Valor_Total_Desagio = ?, Debito_Credito = ? "
+            "WHERE Bordero = ?",
+            valor_total_desagio,
+            debito_credito,
+            numero_bordero,
+        )
+        self._conn.commit()
+        print(
+            f"[DB] Bordero {numero_bordero}: Valor_Total_Desagio={valor_total_desagio:.2f} "
+            f"Debito_Credito={debito_credito:.2f}"
+        )
+
 
 db_service = DatabaseService()
