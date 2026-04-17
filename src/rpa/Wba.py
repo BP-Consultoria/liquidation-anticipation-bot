@@ -717,7 +717,156 @@ class WBA:
         )
         btn_liberar.click_input()
         time.sleep(delay_apos_liberar)
+        
+        janela_recompra.set_focus()
+        janela_recompra.child_window(title="Fechar", control_type="Button").click()
 
         print(
             "[WBA] Liberação: campo preenchido, Recalcular e Liberar acionados (etapa concluída)."
+        )
+
+    def processar_conta_corrente_pos_liberacao(
+        self,
+        df: pd.DataFrame,
+        *,
+        titulo_janela_principal: str = "WBA Securitização - Versão: 24.7.1 (Build: 6847)",
+        titulo_manutencao_cc: str = "Manutenção do Conta Corrente (Carteira Própria)",
+        codigo_filtro_conta: str = "001",
+        imagem_filtro: str = r"C:\Users\suporte\Documents\imagens\filtro.png",
+        imagem_alterar: str = r"C:\Users\suporte\Documents\imagens\alterar.png",
+        imagem_salvar: str = r"C:\Users\suporte\Documents\imagens\salvar.png",
+        imagem_excluir: str = r"C:\Users\suporte\Documents\imagens\excluir.png",
+        texto_motivo_exclusao: str = "lançamento liquidado no 040 by: Lis",
+        confidence: float = 0.8,
+        delay_menu: float = 2.0,
+    ) -> None:
+        """Após ``liberar_concluir_etapa_recompra``: C/Corrente → Lançamentos, *Busca Avançada* com
+        ``Valor_Liquido_Final`` (duas faixas iguais), depois **excluir** se ``Debito_Credito`` < 0
+        ou **alterar** se > 0. Com DC = 0 não executa o fluxo.
+        """
+        if not hasattr(self, "app") or self.app is None:
+            raise RuntimeError("Application not started; call start_wba_application first.")
+        if "Valor_Liquido_Final" not in df.columns:
+            raise ValueError("Coluna Valor_Liquido_Final ausente.")
+        if "Debito_Credito" not in df.columns:
+            raise ValueError("Coluna Debito_Credito ausente.")
+
+        vlf_num = pd.to_numeric(df["Valor_Liquido_Final"].iloc[0], errors="coerce")
+        if pd.isna(vlf_num):
+            raise ValueError("Valor_Liquido_Final inválido ou nulo na primeira linha do lote.")
+        valor_liquido_str = f"{round(float(vlf_num), 2):.2f}".replace(".", ",")
+
+        dc_num = pd.to_numeric(df["Debito_Credito"].iloc[0], errors="coerce")
+        dc = 0.0 if pd.isna(dc_num) else round(float(dc_num), 2)
+
+        if dc == 0.0:
+            print(
+                "[WBA] Conta Corrente pós-liberação: Debito_Credito = 0; "
+                "fluxo excluir/alterar não executado."
+            )
+            return
+
+        def _fmt_dc_alteracao(valor: float) -> str:
+            return f"{round(abs(float(valor)), 2):.2f}".replace(".", ",")
+
+        app = self.app
+        janela = app.window(title=titulo_janela_principal)
+        janela.wait("visible", timeout=10)
+        janela.set_focus()
+        janela.menu_select("C/Corrente->Lançamentos de Caixa e Bancos")
+        time.sleep(delay_menu)
+
+        posicao = pyautogui.locateCenterOnScreen(imagem_filtro, confidence=confidence)
+        if not posicao:
+            raise RuntimeError("Imagem filtro não encontrada na tela.")
+
+        pyautogui.click(posicao)
+
+        janela_busca = app.window(title="Busca Avançada")
+        janela_busca.wait("visible", timeout=15)
+        time.sleep(1)
+
+        checkbox_todos = janela_busca.child_window(
+            title="Todos", control_type="CheckBox"
+        )
+        checkbox_todos.wait("visible", timeout=10)
+        checkbox_todos.click_input()
+        time.sleep(1)
+
+        self.press_keys("{TAB}", 2)
+        time.sleep(1)
+        self.press_keys("{RIGHT}", 2)
+        time.sleep(1)
+        self.press_keys("{TAB}", 2)
+        time.sleep(1)
+        janela_busca.type_keys(codigo_filtro_conta)
+        time.sleep(1)
+
+        checkbox_valores = janela_busca.child_window(
+            title="Valores de:", control_type="CheckBox"
+        )
+        checkbox_valores.wait("visible", timeout=10)
+        checkbox_valores.click_input()
+        time.sleep(1)
+
+        self.press_keys("{TAB}", 1)
+        time.sleep(1)
+        janela_busca.type_keys(valor_liquido_str)
+        time.sleep(1)
+        self.press_keys("{TAB}", 1)
+        time.sleep(1)
+        janela_busca.type_keys(valor_liquido_str)
+        time.sleep(1)
+        self.press_keys("{TAB}", 2)
+        self.press_keys("{ENTER}", 1)
+
+        time.sleep(1)
+        janela_cc = app.window(title=titulo_manutencao_cc)
+        janela_cc.wait("visible", timeout=15)
+        janela_cc.set_focus()
+
+        if dc < 0:
+            print(f"[WBA] Conta Corrente: Debito_Credito negativo ({dc:.2f}); fluxo excluir.")
+            pos_exc = pyautogui.locateCenterOnScreen(imagem_excluir, confidence=confidence)
+            if not pos_exc:
+                raise RuntimeError("Imagem excluir não encontrada na tela.")
+            pyautogui.click(pos_exc)
+
+            time.sleep(1)
+            self.press_keys("{LEFT}", 1)
+            time.sleep(1)
+            self.press_keys("{ENTER}", 1)
+            time.sleep(2)
+            send_keys(texto_motivo_exclusao, with_spaces=True)
+            time.sleep(2)
+            self.press_keys("{TAB}", 1)
+            time.sleep(1)
+            self.press_keys("{ENTER}", 1)
+
+            time.sleep(2)
+            janela_cc = app.window(title=titulo_manutencao_cc)
+            janela_cc.set_focus()
+            janela_cc.child_window(title="Fechar", control_type="Button").click_input()
+            print("[WBA] Conta Corrente: exclusão concluída e janela fechada.")
+            return
+
+        # dc > 0
+        print(f"[WBA] Conta Corrente: Debito_Credito positivo ({dc:.2f}); fluxo alterar valor.")
+        valor_alterar_str = _fmt_dc_alteracao(dc)
+        pos_alt = pyautogui.locateCenterOnScreen(imagem_alterar, confidence=confidence)
+        if not pos_alt:
+            raise RuntimeError("Imagem alterar não encontrada na tela.")
+        pyautogui.click(pos_alt)
+        time.sleep(1)
+        self.press_keys("{TAB}", 5)
+        time.sleep(1)
+        janela_cc.type_keys(valor_alterar_str)
+        self.press_keys("{TAB}", 1)
+
+        pos_salvar = pyautogui.locateCenterOnScreen(imagem_salvar, confidence=confidence)
+        if not pos_salvar:
+            raise RuntimeError("Imagem salvar não encontrada na tela.")
+        pyautogui.click(pos_salvar)
+        print(
+            f"[WBA] Conta Corrente: valor alterado para {valor_alterar_str} (|Debito_Credito|) e salvo."
         )

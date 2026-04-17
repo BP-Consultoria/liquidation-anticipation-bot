@@ -274,6 +274,7 @@ def run():
                 df_lote = wba.aplicar_ajuste_debito_credito_recompra(df_lote)
                 wba.preencher_valor_total_aba_renegociacao(df_lote)
                 wba.liberar_concluir_etapa_recompra()
+                wba.processar_conta_corrente_pos_liberacao(df_lote)
         finally:
             wba.close_wba_application()
 
