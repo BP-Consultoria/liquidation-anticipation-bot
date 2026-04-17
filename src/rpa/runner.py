@@ -271,9 +271,11 @@ def run():
                 wba.lancar_desagio_contas_lancamentos(df_lote)
                 wba.recompra_carteira_propria(df_lote)
                 wba.inserir_desagio_apos_recompra()
-                df_lote = wba.aplicar_ajuste_debito_credito_recompra(df_lote)
+                df_lote, dcto_ajuste_grid = wba.aplicar_ajuste_debito_credito_recompra(df_lote)
                 wba.preencher_valor_total_aba_renegociacao(df_lote)
                 wba.liberar_concluir_etapa_recompra()
+                if dcto_ajuste_grid is not None:
+                    wba.inserir_tag_documento_fluxo_caixa(df_lote, dcto=dcto_ajuste_grid)
                 wba.processar_conta_corrente_pos_liberacao(df_lote)
         finally:
             wba.close_wba_application()

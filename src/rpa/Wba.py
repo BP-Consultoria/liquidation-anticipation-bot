@@ -470,7 +470,7 @@ class WBA:
         delay_tecla_grid: float = 0.55,
         delay_apos_ctrl_c: float = 1.1,
         delay_antes_recalcular: float = 2.5,
-    ) -> pd.DataFrame:
+    ) -> tuple[pd.DataFrame, str | None]:
         """Se ``Debito_Credito`` for negativo, ajusta o valor na linha certa da grid (aba Títulos).
 
         Deve rodar **depois** de ``inserir_desagio_apos_recompra`` (fluxo do ``runner``), com a
@@ -483,6 +483,9 @@ class WBA:
 
         Modo **automático** (padrão): ``calcular_ajuste_dinamico``. **Explícito**: ``dcto_documento``
         e ``valor_ajustado`` juntos. Se ``Debito_Credito`` ≥ 0, devolve o ``df`` sem teclado.
+
+        Retorno: ``(df, dcto_ajustado)``. ``dcto_ajustado`` é o identificador do título editado no
+        grid (``None`` quando não houve ajuste), para fluxos como ``inserir_tag_documento_fluxo_caixa``.
         """
         if not hasattr(self, "app") or self.app is None:
             raise RuntimeError("Application not started; call start_wba_application first.")
@@ -515,7 +518,7 @@ class WBA:
                     print(f"[WBA] Debito_Credito positivo ({residual}); sem edição no grid.")
                 else:
                     print("[WBA] Debito_Credito ≥ 0; sem ajuste no grid.")
-                return df_out
+                return df_out, None
             dcto_norm = str(ajuste["dcto_alvo"])
             ajuste_valor = float(ajuste["valor"])
 
@@ -597,7 +600,7 @@ class WBA:
         time.sleep(3)
         print("[WBA] Recalcular clicado após Atenção.")
 
-        return df_out
+        return df_out, dcto_norm
 
     def preencher_valor_total_aba_renegociacao(
         self,
@@ -725,6 +728,143 @@ class WBA:
             "[WBA] Liberação: campo preenchido, Recalcular e Liberar acionados (etapa concluída)."
         )
 
+    @staticmethod
+    def _resolver_lista_tags(janela_tags) -> object:
+        """Retorna o controle *List* (ou *Table*) onde os ``ListItem`` das tags aparecem — como no Jupyter."""
+        for fi in (0, 1, 2):
+            try:
+                lst = janela_tags.child_window(control_type="List", found_index=fi)
+                lst.wait("exists", timeout=2)
+                return lst
+            except Exception:
+                continue
+        desc = janela_tags.descendants(control_type="List")
+        if desc:
+            return desc[0]
+        tab = janela_tags.descendants(control_type="Table")
+        if tab:
+            return tab[0]
+        return janela_tags
+
+    def inserir_tag_documento_fluxo_caixa(
+        self,
+        df: pd.DataFrame,
+        dcto: str | int,
+        *,
+        titulo_janela_principal: str = "WBA Securitização - Versão: 24.7.1 (Build: 6847)",
+        titulo_manutencao_fluxo: str = "Manutenção do Fluxo de Caixa (Carteira Própria)",
+        imagem_filtro: str = r"C:\Users\suporte\Documents\imagens\filtro.png",
+        imagem_tags: str = r"C:\Users\suporte\Documents\imagens\tags.png",
+        texto_tag: str = "SALDO DE ANTECIPAÇÂO INSUFICIENTE",
+        confidence: float = 0.8,
+        max_pgdn_lista_tag: int = 20,
+        pyautogui_write_interval: float = 0.0,
+    ) -> None:
+        """Espelha o fluxo do Jupyter: Contas→Lançamentos, filtro, busca (cedente + dcto), tags, *Recompra Cedente*.
+
+        ``lista`` é o ``List`` da janela ``Tags do documento: <dcto>`` (``found_index=0`` com fallback).
+        """
+        if not hasattr(self, "app") or self.app is None:
+            raise RuntimeError("Application not started; call start_wba_application first.")
+
+        dcto_str = str(normalizar_id_titulo_dcto(dcto)).strip()
+        codigo_str = str(codigo_cedente_unico(df))
+        titulo_tags = f"Tags do documento: {dcto_str}"
+
+        app = self.app
+        janela = app.window(title=titulo_janela_principal)
+        janela.wait("visible", timeout=10)
+        janela.set_focus()
+        janela.menu_select("Contas->Lançamentos")
+        time.sleep(2)
+
+        posicao = pyautogui.locateCenterOnScreen(imagem_filtro, confidence=confidence)
+        if not posicao:
+            raise RuntimeError("Imagem filtro não encontrada na tela.")
+        pyautogui.click(posicao)
+
+        janela = app.window(title="Busca Avançada")
+        janela.wait("visible", timeout=15)
+        time.sleep(1)
+
+        janela.child_window(
+            title="Todos", control_type="CheckBox", found_index=1
+        ).click_input()
+        time.sleep(1)
+
+        cedente_checkbox = janela.child_window(title="Cedente", control_type="CheckBox")
+        cedente_checkbox.set_focus()
+        cedente_checkbox.toggle()
+        time.sleep(1)
+
+        self.press_keys("{TAB}", 2, delay=0.05)
+        janela.type_keys(codigo_str)
+        time.sleep(1)
+        self.press_keys("{TAB}", 8, delay=0.05)
+        time.sleep(1)
+        self.press_keys("{UP}", 1, delay=0.05)
+        time.sleep(1)
+        self.press_keys("{TAB}", 1, delay=0.05)
+        janela.type_keys(dcto_str)
+        time.sleep(2)
+        self.press_keys("{ENTER}", 1, delay=0.05)
+
+        janela = app.window(title=titulo_manutencao_fluxo)
+        janela.wait("visible", timeout=15)
+
+        posicao = pyautogui.locateCenterOnScreen(imagem_tags, confidence=confidence)
+        if not posicao:
+            raise RuntimeError("Imagem tags não encontrada na tela.")
+        pyautogui.click(posicao)
+
+        janela = app.window(title=titulo_tags)
+        janela.wait("visible", timeout=15)
+
+        try:
+            lista = janela.child_window(control_type="List", found_index=0)
+            lista.wait("exists", timeout=5)
+        except Exception:
+            lista = self._resolver_lista_tags(janela)
+
+        lista.set_focus()
+
+        item_ok = False
+        for _ in range(max_pgdn_lista_tag):
+            try:
+                item = lista.child_window(
+                    title_re=".*Recompra Cedente.*",
+                    control_type="ListItem",
+                )
+                item.double_click_input()
+                item_ok = True
+                break
+            except Exception:
+                lista.type_keys("{PGDN}")
+
+        if not item_ok:
+            raise RuntimeError(
+                "ListItem com título contendo 'Recompra Cedente' não encontrado na lista de tags."
+            )
+
+        time.sleep(1)
+        pyautogui.write(texto_tag, interval=pyautogui_write_interval or 0)
+        time.sleep(1)
+        self.press_keys("{TAB}", 1, delay=0.05)
+        time.sleep(1)
+        self.press_keys("{ENTER}", 1, delay=0.05)
+        time.sleep(1)
+        self.press_keys("{ENTER}", 1, delay=0.05)
+
+        janela = app.window(title=titulo_manutencao_fluxo)
+        janela.wait("visible", timeout=15)
+        time.sleep(2)
+        janela.set_focus()
+        janela.child_window(title="Fechar", control_type="Button").click()
+
+        print(
+            f"[WBA] Tag inserida no documento {dcto_str!r} (texto: {texto_tag!r})."
+        )
+
     def processar_conta_corrente_pos_liberacao(
         self,
         df: pd.DataFrame,
@@ -741,8 +881,7 @@ class WBA:
         delay_menu: float = 2.0,
     ) -> None:
         """Após ``liberar_concluir_etapa_recompra``: C/Corrente → Lançamentos, *Busca Avançada* com
-        ``Valor_Liquido_Final`` (duas faixas iguais), depois **excluir** se ``Debito_Credito`` < 0
-        ou **alterar** se > 0. Com DC = 0 não executa o fluxo.
+        ``Valor_Liquido_Final`` nas duas faixas **Valores de:** (mesmo valor repetido).
         """
         if not hasattr(self, "app") or self.app is None:
             raise RuntimeError("Application not started; call start_wba_application first.")
@@ -751,10 +890,13 @@ class WBA:
         if "Debito_Credito" not in df.columns:
             raise ValueError("Coluna Debito_Credito ausente.")
 
-        vlf_num = pd.to_numeric(df["Valor_Liquido_Final"].iloc[0], errors="coerce")
-        if pd.isna(vlf_num):
-            raise ValueError("Valor_Liquido_Final inválido ou nulo na primeira linha do lote.")
-        valor_liquido_str = f"{round(float(vlf_num), 2):.2f}".replace(".", ",")
+        ser_vlf = pd.to_numeric(df["Valor_Liquido_Final"], errors="coerce").dropna()
+        if ser_vlf.empty:
+            raise ValueError("Valor_Liquido_Final inválido ou nulo em todas as linhas do lote.")
+        v_filtro = round(float(ser_vlf.iloc[0]), 2)
+        col_usada = "Valor_Liquido_Final"
+
+        valor_filtro_str = f"{v_filtro:.2f}".replace(".", ",")
 
         dc_num = pd.to_numeric(df["Debito_Credito"].iloc[0], errors="coerce")
         dc = 0.0 if pd.isna(dc_num) else round(float(dc_num), 2)
@@ -765,6 +907,11 @@ class WBA:
                 "fluxo excluir/alterar não executado."
             )
             return
+
+        print(
+            f"[WBA] Conta Corrente: filtro 'Valores de:' = R$ {valor_filtro_str} "
+            f"(coluna {col_usada})."
+        )
 
         def _fmt_dc_alteracao(valor: float) -> str:
             return f"{round(abs(float(valor)), 2):.2f}".replace(".", ",")
@@ -811,11 +958,11 @@ class WBA:
 
         self.press_keys("{TAB}", 1)
         time.sleep(1)
-        janela_busca.type_keys(valor_liquido_str)
+        janela_busca.type_keys(valor_filtro_str)
         time.sleep(1)
         self.press_keys("{TAB}", 1)
         time.sleep(1)
-        janela_busca.type_keys(valor_liquido_str)
+        janela_busca.type_keys(valor_filtro_str)
         time.sleep(1)
         self.press_keys("{TAB}", 2)
         self.press_keys("{ENTER}", 1)
