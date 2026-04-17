@@ -598,3 +598,126 @@ class WBA:
         print("[WBA] Recalcular clicado após Atenção.")
 
         return df_out
+
+    def preencher_valor_total_aba_renegociacao(
+        self,
+        df: pd.DataFrame,
+        titulo_recompra: str = "Recompra (Carteira Própria)",
+        *,
+        coluna_valor: str = "Valor",
+        passos_tab_ate_campo: int = 8,
+        delay_apos_aba: float = 1.0,
+        delay_apos_tabs: float = 1.0,
+        delay_apos_enter_valor: float = 0.5,
+        delay_apos_recalcular: float = 2.0,
+    ) -> None:
+        """Aba *Renegociação*: preenche o campo com a **soma da coluna ``Valor``** (face de cada título).
+
+        Cada linha do ``df`` é um título; o valor enviado ao WBA é ``sum(Valor)`` de todas as linhas.
+        Deve rodar **depois** de ``aplicar_ajuste_debito_credito_recompra``. Ajuste
+        ``passos_tab_ate_campo`` se o foco não cair no campo certo.
+        """
+        if not hasattr(self, "app") or self.app is None:
+            raise RuntimeError("Application not started; call start_wba_application first.")
+        if coluna_valor not in df.columns:
+            raise ValueError(f"DataFrame sem coluna {coluna_valor!r}.")
+
+        n_titulos = len(df)
+        soma_valor_titulos = round(
+            float(pd.to_numeric(df[coluna_valor], errors="coerce").fillna(0).sum()),
+            2,
+        )
+        valor_formatado = f"{soma_valor_titulos:.2f}".replace(".", ",")
+
+        print(
+            f"[WBA] Renegociação — soma de {coluna_valor} ({n_titulos} título(s)): R$ {valor_formatado}"
+        )
+
+        app = self.app
+        janela_recompra = app.window(title=titulo_recompra)
+        janela_recompra.wait("visible", timeout=15)
+        janela_recompra.set_focus()
+
+        aba_renegociacao = janela_recompra.child_window(
+            title="Renegociação", control_type="TabItem"
+        )
+        aba_renegociacao.click_input()
+        time.sleep(delay_apos_aba)
+
+        janela_recompra.set_focus()
+        self.press_keys("{TAB}", passos_tab_ate_campo)
+        time.sleep(delay_apos_tabs)
+
+        janela_recompra.type_keys(valor_formatado + "{ENTER}")
+        time.sleep(delay_apos_enter_valor)
+
+        btn_recalcular = janela_recompra.child_window(
+            title="Recalcular", control_type="Button"
+        )
+        btn_recalcular.click_input()
+        time.sleep(delay_apos_recalcular)
+
+        print(
+            f"[WBA] Renegociação: total (soma {coluna_valor}) R$ {valor_formatado} — Recalcular acionado."
+        )
+
+    def liberar_concluir_etapa_recompra(
+        self,
+        titulo_recompra: str = "Recompra (Carteira Própria)",
+        *,
+        passos_tab_ate_campo: int = 16,
+        texto_campo: str = "77",
+        passos_tab_apos_campo: int = 2,
+        delay_apos_aba: float = 1.0,
+        delay_apos_tabs_inicial: float = 0.3,
+        delay_apos_digitacao: float = 0.3,
+        delay_apos_tabs_final: float = 0.3,
+        delay_apos_recalcular: float = 2.0,
+        delay_apos_liberar: float = 2.0,
+    ) -> None:
+        """Último passo do fluxo na *Recompra*: aba *Liberação*, campo (TAB), digitação, *Recalcular* e *Liberar*.
+
+        Rodar **depois** de ``preencher_valor_total_aba_renegociacao``. Ajuste
+        ``passos_tab_ate_campo`` / ``texto_campo`` conforme o layout do WBA.
+        """
+        if not hasattr(self, "app") or self.app is None:
+            raise RuntimeError("Application not started; call start_wba_application first.")
+
+        app = self.app
+        janela_recompra = app.window(title=titulo_recompra)
+        janela_recompra.wait("visible", timeout=15)
+        janela_recompra.set_focus()
+
+        aba_liberacao = janela_recompra.child_window(
+            title="Liberação", control_type="TabItem"
+        )
+        aba_liberacao.click_input()
+        time.sleep(delay_apos_aba)
+
+        janela_recompra.set_focus()
+        self.press_keys("{TAB}", passos_tab_ate_campo, delay=delay_apos_tabs_inicial)
+        time.sleep(delay_apos_tabs_inicial)
+
+        janela_recompra.type_keys(texto_campo)
+        time.sleep(delay_apos_digitacao)
+
+        self.press_keys("{TAB}", passos_tab_apos_campo, delay=delay_apos_tabs_final)
+        time.sleep(delay_apos_tabs_final)
+
+        janela_recompra.set_focus()
+        btn_recalcular = janela_recompra.child_window(
+            title="Recalcular", control_type="Button"
+        )
+        btn_recalcular.click_input()
+        time.sleep(delay_apos_recalcular)
+
+        janela_recompra.set_focus()
+        btn_liberar = janela_recompra.child_window(
+            title="Liberar", control_type="Button"
+        )
+        btn_liberar.click_input()
+        time.sleep(delay_apos_liberar)
+
+        print(
+            "[WBA] Liberação: campo preenchido, Recalcular e Liberar acionados (etapa concluída)."
+        )
