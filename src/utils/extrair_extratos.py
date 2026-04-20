@@ -5,13 +5,14 @@ import ast
 from datetime import datetime
 from pathlib import Path
 
-PROJECT_PATH = Path(__file__).resolve().parent.parent.parent  # raiz do projeto
+# Configurações de Caminho
+PROJECT_PATH = Path(__file__).resolve().parent.parent.parent
 YAML_PATH = PROJECT_PATH / "auth" / "paramenters.yml"
 BASE_URL = "https://gapp.bancoarbi.com.br"
 
-# 🔥 DATA FIXA
-DATA_API = "2026-04-14"
-DATA_BR = "14/04/2026"
+# 🔥 DATA DE CONSULTA (Centralizada aqui)
+DATA_API = "2026-04-17"  # Formato para envio na URL/Payload
+DATA_BR = "17/04/2026"   # Formato para validar o retorno da API
 
 CONTAS = {
     '0003717752': "IG TRANSPORTES LTDA",
@@ -27,11 +28,9 @@ def ler_yaml():
     with open(YAML_PATH, 'r') as f:
         return yaml.load(f, Loader=yaml.FullLoader)
 
-
 def gravar_yaml(config):
     with open(YAML_PATH, 'w') as f:
         yaml.dump(config, f)
-
 
 # ──────────────────────────────────────────────
 # ETAPA 1 - Autenticação OAuth2
@@ -51,7 +50,6 @@ def obter_grant_code(client_id):
         return redirect_uri.split("=")[1]
     raise Exception(f"Erro ao obter grant code: {response.status_code} - {response.text}")
 
-
 def obter_access_token(authorization, client_id):
     code = obter_grant_code(client_id)
     response = requests.post(
@@ -69,7 +67,6 @@ def obter_access_token(authorization, client_id):
         return response.json()["access_token"]
     raise Exception(f"Erro ao obter access token: {response.status_code} - {response.text}")
 
-
 def renovar_token():
     config = ler_yaml()
     arbi = config["paramenters_arbi"]
@@ -78,7 +75,6 @@ def renovar_token():
     gravar_yaml(config)
     print(f"[AUTH] Token renovado com sucesso")
     return token
-
 
 # ──────────────────────────────────────────────
 # ETAPA 2 - ID de Requisição
@@ -93,8 +89,40 @@ def gerar_idrequisicao():
 
 
 # ──────────────────────────────────────────────
+#  - Chamada à API do Banco Arbi
+# ──────────────────────────────────────────────
+
+
+def consultar_saldo(conta):
+    return chamar_api_arbi(gerar_idrequisicao(), conta, 3, DATA_API, DATA_API)
+
+def consultar_extrato(conta):
+    """Esta é a função que o seu runner.py estava sentindo falta."""
+    return chamar_api_arbi(gerar_idrequisicao(), conta, 4, DATA_API, DATA_API)
+
+# ──────────────────────────────────────────────
 # ETAPA 3 - Chamada à API do Banco Arbi
 # ──────────────────────────────────────────────
+
+
+def buscar_valor_liquido(dados_api):
+    """
+    Busca o valor da TED recebida no extrato.
+    O critério foi ajustado para 'TED' e 'RECEB', que é como aparece no seu extrato.
+    """
+    movimentacoes = parsear_movimentacoes(dados_api)
+    
+    for mov in movimentacoes:
+        # Transformamos em maiúsculo para evitar erro de caixa (TED vs ted)
+        h = mov.get("historico", "").upper()
+        
+        # O extrato mostra: "TED RECEB DE DIF TITULARID"
+        # Então verificamos se contém TED e se contém RECEB (de recebimento)
+        if "TED" in h and "RECEB" in h:
+            print(f"    [MATCH] Valor líquido encontrado: R$ {mov['valor']}")
+            return mov["valor"]
+            
+    return None
 
 def chamar_api_arbi(idrequisicao, conta, idtransacao, datainicial, datafinal):
     config = ler_yaml()
@@ -145,26 +173,11 @@ def chamar_api_arbi(idrequisicao, conta, idtransacao, datainicial, datafinal):
         return response.json()
     return {"erro": response.status_code, "mensagem": response.text}
 
-
-def consultar_extrato(conta):
-    #dia_atual = datetime.now().strftime("%Y-%m-%d")
-    return chamar_api_arbi(gerar_idrequisicao(), conta, 4, DATA_API, DATA_API)
-
-
-def consultar_saldo(conta):
-    #dia_atual = datetime.now().strftime("%Y-%m-%d")
-    return chamar_api_arbi(gerar_idrequisicao(), conta, 3, DATA_API, DATA_API)
-
-
 # ──────────────────────────────────────────────
-# ETAPA 4 - Parsear movimentações da API
+# ETAPA 4 - Parsear movimentações
 # ──────────────────────────────────────────────
 
 def _tipo_e_natureza_movimento(natureza_raw: str) -> tuple[str, str]:
-    """Normaliza natureza da API e retorna (tipo, natureza_label).
-
-    Arbi costuma enviar ``C`` / ``D``; aceita também variações textuais.
-    """
     n = (natureza_raw or "").strip().upper()
     if n in ("C", "CRÉDITO", "CREDITO", "CREDIT"):
         return "credito", "CRÉDITO"
@@ -172,24 +185,27 @@ def _tipo_e_natureza_movimento(natureza_raw: str) -> tuple[str, str]:
         return "debito", "DÉBITO"
     return "desconhecido", n or "(vazio)"
 
-
 def parsear_movimentacoes(dados_api):
-    """Parseia todas as movimentações do dia atual do extrato."""
-    if not isinstance(dados_api, list):
+    """Filtra e organiza as movimentações retornadas pela API."""
+    if not isinstance(dados_api, list) or not dados_api:
         return []
 
-    if not dados_api or dados_api[0].get("descricaostatus") != "Sucesso":
+    if dados_api[0].get("descricaostatus") != "Sucesso":
         return []
-
-    #dia_atual = datetime.now().strftime("%d/%m/%Y")
-    dia_atual = "14/04/2026"
 
     movimentacoes = []
     for item in dados_api:
         try:
-            resultado = ast.literal_eval(item["resultado"])
+            # Arbi retorna o campo 'resultado' como string de um dict Python
+            res_raw = item.get("resultado")
+            if not res_raw: continue
+            
+            resultado = ast.literal_eval(res_raw) if isinstance(res_raw, str) else res_raw
 
-            if resultado.get("datamovimento", "") != DATA_BR:
+            # Validação de data com strip() para evitar erros de espaços invisíveis
+            data_mov_api = str(resultado.get("datamovimento", "")).strip()
+            
+            if data_mov_api != DATA_BR:
                 continue
 
             historico = resultado.get("historico", "")
@@ -200,7 +216,7 @@ def parsear_movimentacoes(dados_api):
             tipo_mov, natureza_label = _tipo_e_natureza_movimento(str(nat_raw))
 
             movimentacoes.append({
-                "data_movimento": resultado.get("datamovimento", ""),
+                "data_movimento": data_mov_api,
                 "documento": resultado.get("nrodocto", ""),
                 "historico": historico,
                 "finalidade": resultado.get("finalidade", ""),
@@ -209,27 +225,10 @@ def parsear_movimentacoes(dados_api):
                 "natureza_normalizada": natureza_label,
                 "tipo": tipo_mov,
             })
-        except (ValueError, SyntaxError, KeyError) as e:
+        except Exception as e:
             movimentacoes.append({"erro_parse": str(e), "dado_original": item})
 
     return movimentacoes
-
-
-def buscar_valor_liquido(dados_api):
-    """Valor da linha TED REMESSA no extrato do dia (Valor_Liquido_Final).
-
-    A Arbi pode enviar a mesma movimentação com natureza **crédito** ou **débito**;
-    o critério é o histórico (TED + REMESSA), não o tipo.
-    """
-    movimentacoes = parsear_movimentacoes(dados_api)
-    for mov in movimentacoes:
-        if mov.get("erro_parse"):
-            continue
-        h = mov.get("historico", "").upper()
-        if "TED" in h and "REMESSA" in h:
-            return mov["valor"]
-    return None
-
 
 def parsear_saldo(dados_api):
     if not isinstance(dados_api, list) or not dados_api:
@@ -239,114 +238,70 @@ def parsear_saldo(dados_api):
     except (ValueError, KeyError, TypeError):
         return None
 
-
 # ──────────────────────────────────────────────
-# ETAPA 5 - Extração completa
+# ETAPA 5 - Execução Principal
 # ──────────────────────────────────────────────
 
 def extrair_extratos():
     print("=" * 60)
-    print("INICIANDO EXTRAÇÃO DE EXTRATOS - BANCO ARBI")
-    print(f"Data: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}")
-    print(f"Total de contas: {len(CONTAS)}")
+    print("INICIANDO EXTRAÇÃO - BANCO ARBI")
+    print(f"Data Alvo: {DATA_BR}")
     print("=" * 60)
 
-    renovar_token()
+    try:
+        renovar_token()
+    except Exception as e:
+        print(f"FALHA NA AUTENTICAÇÃO: {e}")
+        return
 
     resultado_geral = {
         "data_execucao": datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
-        "periodo": {
-            "inicio": datetime.now().strftime("%d/%m/%Y"),
-            "fim": datetime.now().strftime("%d/%m/%Y")
-        },
-        "total_contas": len(CONTAS),
-        "resumo": {
-            "com_saldo": 0,
-            "sem_saldo": 0,
-            "com_movimento": 0,
-            "sem_movimento": 0,
-            "erros": 0
-        },
+        "periodo_consultado": DATA_BR,
         "contas": []
     }
 
-    for i, (conta, empresa) in enumerate(CONTAS.items(), 1):
-        print(f"[{i}/{len(CONTAS)}] Processando: {empresa} (conta {conta})")
+    resumo = {"com_saldo": 0, "com_movimento": 0, "erros": 0}
 
+    for conta, empresa in CONTAS.items():
+        print(f" PROCESSANDO: {empresa} ({conta})")
+        
         dados_conta = {
-            "conta": conta,
-            "empresa": empresa,
-            "agencia": "0001-9",
-            "banco": "213 - Banco Arbi",
-            "saldo": None,
-            "tem_saldo": False,
-            "movimentacoes": [],
-            "tem_movimento": False,
-            "erro": None
+            "conta": conta, "empresa": empresa,
+            "saldo": None, "movimentacoes": [], "erro": None
         }
 
-        # Consultar saldo
-        saldo_api = consultar_saldo(conta)
-        if isinstance(saldo_api, dict) and "erro" in saldo_api:
-            dados_conta["erro"] = f"Erro saldo: {saldo_api['erro']} - {saldo_api['mensagem']}"
-            resultado_geral["resumo"]["erros"] += 1
-            resultado_geral["contas"].append(dados_conta)
-            print(f"  ERRO ao consultar saldo: {saldo_api['erro']}")
-            continue
-
-        saldo_valor = parsear_saldo(saldo_api)
-        dados_conta["saldo"] = saldo_valor
-        dados_conta["tem_saldo"] = saldo_valor is not None and saldo_valor > 0
-
-        if dados_conta["tem_saldo"]:
-            resultado_geral["resumo"]["com_saldo"] += 1
+        # 1. Saldo
+        res_saldo = chamar_api_arbi(gerar_idrequisicao(), conta, 3, DATA_API, DATA_API)
+        if isinstance(res_saldo, dict) and "erro" in res_saldo:
+            dados_conta["erro"] = res_saldo["mensagem"]
+            resumo["erros"] += 1
         else:
-            resultado_geral["resumo"]["sem_saldo"] += 1
+            dados_conta["saldo"] = parsear_saldo(res_saldo)
+            if dados_conta["saldo"] and dados_conta["saldo"] > 0: resumo["com_saldo"] += 1
 
-        # Consultar extrato
-        extrato_api = consultar_extrato(conta)
-        if isinstance(extrato_api, dict) and "erro" in extrato_api:
-            dados_conta["erro"] = f"Erro extrato: {extrato_api['erro']} - {extrato_api['mensagem']}"
-            resultado_geral["resumo"]["erros"] += 1
-            resultado_geral["contas"].append(dados_conta)
-            print(f"  ERRO ao consultar extrato: {extrato_api['erro']}")
-            continue
-
-        movimentacoes = parsear_movimentacoes(extrato_api)
-        dados_conta["movimentacoes"] = movimentacoes
-        dados_conta["tem_movimento"] = len(movimentacoes) > 0
-
-        if dados_conta["tem_movimento"]:
-            resultado_geral["resumo"]["com_movimento"] += 1
+        # 2. Extrato
+        res_extrato = chamar_api_arbi(gerar_idrequisicao(), conta, 4, DATA_API, DATA_API)
+        if isinstance(res_extrato, dict) and "erro" in res_extrato:
+            dados_conta["erro"] = res_extrato["mensagem"]
         else:
-            resultado_geral["resumo"]["sem_movimento"] += 1
-
-        saldo_str = f"R$ {saldo_valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".") if saldo_valor is not None else "N/A"
-        print(f"  Saldo: {saldo_str} | Movimentações: {len(movimentacoes)}")
+            movs = parsear_movimentacoes(res_extrato)
+            dados_conta["movimentacoes"] = movs
+            if movs: resumo["com_movimento"] += 1
 
         resultado_geral["contas"].append(dados_conta)
+        
+        # Log rápido
+        status_mov = f"{len(dados_conta['movimentacoes'])} movs"
+        print(f"   -> Saldo: {dados_conta['saldo']} | Movimentos: {status_mov}")
 
-    print("\n" + "=" * 60)
-    print("EXTRAÇÃO FINALIZADA")
-    print(f"Com saldo: {resultado_geral['resumo']['com_saldo']}")
-    print(f"Sem saldo: {resultado_geral['resumo']['sem_saldo']}")
-    print(f"Com movimento: {resultado_geral['resumo']['com_movimento']}")
-    print(f"Sem movimento: {resultado_geral['resumo']['sem_movimento']}")
-    print(f"Erros: {resultado_geral['resumo']['erros']}")
-    print("=" * 60)
-
+    resultado_geral["resumo"] = resumo
     return resultado_geral
-
-
-# ──────────────────────────────────────────────
-# Execução
-# ──────────────────────────────────────────────
 
 if __name__ == "__main__":
     resultado = extrair_extratos()
-
+    
     output_path = PROJECT_PATH / "extratos_resultado.json"
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(resultado, f, ensure_ascii=False, indent=2)
 
-    print(f"\nJSON salvo em: {output_path}")
+    print(f"\nFinalizado! JSON salvo em: {output_path}")

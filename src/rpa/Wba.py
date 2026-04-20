@@ -144,7 +144,7 @@ class WBA:
 
         app = self.app
         janela = app.window(title=titulo_janela_principal)
-        janela.wait("ready", timeout=10)
+        janela.wait("ready", timeout=30)
         janela.menu_select("Contas->Lançamentos")
 
         janela = app.window(title="Manutenção do Fluxo de Caixa (Carteira Própria)")
@@ -227,8 +227,19 @@ class WBA:
         janela.type_keys("{TAB}")
 
         janela = app.window(title="Alertas")
-        time.sleep(4)
-        janela.child_window(title="Fechar", control_type="Button", found_index=0).click()
+
+        try:
+            if janela.exists(timeout=5):
+                print("[WBA] Janela 'Alertas' encontrada. Fechando...")
+                time.sleep(4)
+                janela.child_window(title="Fechar", control_type="Button", found_index=0).click()
+            else:
+                print("[WBA] Janela 'Alertas' não apareceu. Continuando...")
+
+        except Exception as e:
+            print(f"[WBA] Aviso: Erro ao interagir com alerta (pode ter fechado sozinho): {e}")
+
+        print("[WBA] Seguindo com o fluxo...")
 
         janela = app.window(title="Recompra (Carteira Própria)")
 
@@ -1045,6 +1056,11 @@ class WBA:
         print(
             f"[WBA] Conta Corrente: valor alterado para {valor_alterar_str} (|Debito_Credito|) e salvo."
         )
+        time.sleep(2)
+        janela_cc = app.window(title=titulo_manutencao_cc)
+        janela_cc.set_focus()
+        janela_cc.child_window(title="Fechar", control_type="Button").click_input()
+        print("[WBA] Conta Corrente: alteração concluída e janela fechada.")
         self._enviar_teams_liquidacao_cc(
             df, valor_deixado=dc, nome_portal_teams=nome_portal_teams, teams_chat_id=teams_chat_id
         )
