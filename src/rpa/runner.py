@@ -10,6 +10,7 @@ from utils.extrair_extratos import (
     CONTAS, renovar_token, consultar_extrato, buscar_valor_liquido,
 )
 
+from config import settings
 from rpa.Wba import WBA
 
 # Mapa de código do cedente no sistema
@@ -276,7 +277,11 @@ def run():
                 wba.liberar_concluir_etapa_recompra()
                 if dcto_ajuste_grid is not None:
                     wba.inserir_tag_documento_fluxo_caixa(df_lote, dcto=dcto_ajuste_grid)
-                wba.processar_conta_corrente_pos_liberacao(df_lote)
+                wba.processar_conta_corrente_pos_liberacao(
+                    df_lote,
+                    nome_portal_teams=settings.teams_nome_portal or None,
+                    teams_chat_id=settings.chat_id or None,
+                )
         finally:
             wba.close_wba_application()
 

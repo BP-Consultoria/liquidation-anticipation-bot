@@ -865,10 +865,31 @@ class WBA:
             f"[WBA] Tag inserida no documento {dcto_str!r} (texto: {texto_tag!r})."
         )
 
+    def _enviar_teams_liquidacao_cc(
+        self,
+        df: pd.DataFrame,
+        valor_deixado: Optional[float],
+        nome_portal_teams: Optional[str],
+        teams_chat_id: Optional[str],
+    ) -> None:
+        portal = (nome_portal_teams or "").strip()
+        cid = (teams_chat_id or "").strip()
+        if not portal or not cid:
+            return
+        try:
+            from utils.send_message_teams import notificar_liquidacao_conta_corrente
+
+            notificar_liquidacao_conta_corrente(df, portal, cid, valor_deixado)
+            print("[WBA] Notificação Teams enviada (liquidação C/Corrente).")
+        except Exception as exc:
+            print(f"[WBA] Aviso: notificação Teams não enviada ({exc}).")
+
     def processar_conta_corrente_pos_liberacao(
         self,
         df: pd.DataFrame,
         *,
+        nome_portal_teams: Optional[str] = None,
+        teams_chat_id: Optional[str] = None,
         titulo_janela_principal: str = "WBA Securitização - Versão: 24.7.1 (Build: 6847)",
         titulo_manutencao_cc: str = "Manutenção do Conta Corrente (Carteira Própria)",
         codigo_filtro_conta: str = "001",
@@ -882,6 +903,10 @@ class WBA:
     ) -> None:
         """Após ``liberar_concluir_etapa_recompra``: C/Corrente → Lançamentos, *Busca Avançada* com
         ``Valor_Liquido_Final`` nas duas faixas **Valores de:** (mesmo valor repetido).
+
+        Se ``nome_portal_teams`` e ``teams_chat_id`` estiverem preenchidos, envia Teams após
+        excluir (``Debito_Credito`` < 0, ``valor_deixado`` = ``None``) ou após alterar valor
+        (``Debito_Credito`` > 0, ``valor_deixado`` = saldo positivo ``dc``).
         """
         if not hasattr(self, "app") or self.app is None:
             raise RuntimeError("Application not started; call start_wba_application first.")
@@ -995,6 +1020,9 @@ class WBA:
             janela_cc.set_focus()
             janela_cc.child_window(title="Fechar", control_type="Button").click_input()
             print("[WBA] Conta Corrente: exclusão concluída e janela fechada.")
+            self._enviar_teams_liquidacao_cc(
+                df, valor_deixado=None, nome_portal_teams=nome_portal_teams, teams_chat_id=teams_chat_id
+            )
             return
 
         # dc > 0
@@ -1016,4 +1044,7 @@ class WBA:
         pyautogui.click(pos_salvar)
         print(
             f"[WBA] Conta Corrente: valor alterado para {valor_alterar_str} (|Debito_Credito|) e salvo."
+        )
+        self._enviar_teams_liquidacao_cc(
+            df, valor_deixado=dc, nome_portal_teams=nome_portal_teams, teams_chat_id=teams_chat_id
         )

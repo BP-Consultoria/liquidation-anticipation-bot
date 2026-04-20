@@ -15,6 +15,14 @@ class Settings(BaseSettings):
     # WBA settings
     wba_username: str = ""
     wba_password: str = ""
+    
+    # Teams settings
+    ms_client_id: str = ""
+    ms_username: str = ""
+    ms_password: str = ""
+    ms_graph_base_url: str = ""
+    chat_id: str = ""
+    teams_nome_portal: str = ""
 
     # Database settings (anticipation_db)
     db_driver: str = "mssql+pyodbc"
