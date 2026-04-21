@@ -27,14 +27,18 @@ def formatar_mensagem(
 
     valor_formatado = formatar_valor(valor_liquido_final)
 
-    titulos = " / ".join(str(t) for t in array_titulos)
+    titulos = "/".join(str(t) for t in array_titulos)
 
+    hora = datetime.now().strftime("%H:%M")
     original = (
-        f"Lis {data_atual} - R$ {valor_formatado} - TEC TRANSPORTES EIRELI "
-        f"R$ {valor_formatado} - Entrou no dia <br>{data_atual} na conta INTER - GRLIS DEIXADO NO 001"
+        f'<small>Lis  <span style="color:gray">{data_atual}, {hora}</span></small><br>'
+        f"R$ {valor_formatado} - TEC TRANSPORTES EIRELI "
+        f"R$ {valor_formatado} - Entrou no dia "
+        f"{data_atual} na conta INTER - GRLIS DEIXADO NO 001"
     )
 
-    resposta = f"TIT {titulos} - ANT {nome_portal}"
+    label_tit = "TIT." if len(array_titulos) == 1 else "TITS."
+    resposta = f"{label_tit} {titulos} - ANT {nome_portal}"
 
     if valor_deixado is not None and valor_deixado > 0:
         valor_deixado_fmt = formatar_valor(valor_deixado)
@@ -48,11 +52,10 @@ def reply_simulado(chat_id: str, original_text: str, resposta: str) -> requests.
     headers = get_teams_headers()
     url = f"https://graph.microsoft.com/v1.0/chats/{chat_id}/messages"
 
-    original_html = format_text(original_text)
     resposta_html = format_text(resposta)
 
     content = (
-        f"<blockquote>{original_html}</blockquote>"
+        f"<blockquote>{original_text}</blockquote>"
         f"<p>{resposta_html}</p>"
     )
 
