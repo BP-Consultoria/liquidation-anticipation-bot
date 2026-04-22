@@ -10,9 +10,11 @@ PROJECT_PATH = Path(__file__).resolve().parent.parent.parent
 YAML_PATH = PROJECT_PATH / "auth" / "paramenters.yml"
 BASE_URL = "https://gapp.bancoarbi.com.br"
 
-# 🔥 DATA DE CONSULTA (Centralizada aqui)
-DATA_API = "2026-04-17"  # Formato para envio na URL/Payload
-DATA_BR = "17/04/2026"   # Formato para validar o retorno da API
+# DATA_API = "2026-04-17"
+# DATA_BR  = "17/04/2026"
+_HOJE = datetime.now()
+DATA_API = _HOJE.strftime("%Y-%m-%d")   # Formato para envio na URL/Payload
+DATA_BR  = _HOJE.strftime("%d/%m/%Y")   # Formato para validar o retorno da API
 
 CONTAS = {
     '0003717752': "IG TRANSPORTES LTDA",
@@ -107,21 +109,20 @@ def consultar_extrato(conta):
 
 def buscar_valor_liquido(dados_api):
     """
-    Busca o valor da TED recebida no extrato.
-    O critério foi ajustado para 'TED' e 'RECEB', que é como aparece no seu extrato.
+    Busca o valor líquido no extrato com a seguinte prioridade:
+      1. PIX REMESSA (débito) para GRLIS SECURITIZADORA
     """
     movimentacoes = parsear_movimentacoes(dados_api)
-    
+
     for mov in movimentacoes:
-        # Transformamos em maiúsculo para evitar erro de caixa (TED vs ted)
         h = mov.get("historico", "").upper()
-        
-        # O extrato mostra: "TED RECEB DE DIF TITULARID"
-        # Então verificamos se contém TED e se contém RECEB (de recebimento)
-        if "TED" in h and "RECEB" in h:
-            print(f"    [MATCH] Valor líquido encontrado: R$ {mov['valor']}")
+        finalidade = mov.get("finalidade", "").upper()
+        tipo = mov.get("tipo", "")
+
+        if tipo == "debito" and "REMESSA" in h and "SECURITIZADORA" in finalidade:
+            print(f"    [MATCH] Valor líquido encontrado (REMESSA): R$ {mov['valor']}")
             return mov["valor"]
-            
+
     return None
 
 def chamar_api_arbi(idrequisicao, conta, idtransacao, datainicial, datafinal):

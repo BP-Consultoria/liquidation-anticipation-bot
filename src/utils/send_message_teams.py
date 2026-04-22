@@ -33,7 +33,7 @@ def formatar_mensagem(
     original = (
         f'<small>Lis  <span style="color:gray">{data_atual}, {hora}</span></small><br>'
         f"R$ {valor_formatado} - TEC TRANSPORTES EIRELI "
-        f"R$ {valor_formatado} - Entrou no dia "
+        f"R$ {valor_formatado} - Entrou no dia <br>"
         f"{data_atual} na conta INTER - GRLIS DEIXADO NO 001"
     )
 

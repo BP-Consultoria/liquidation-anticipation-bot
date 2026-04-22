@@ -42,8 +42,8 @@ class DatabaseService:
             "WHERE "
             "    a.Is_inserted = 1 "
             "    AND a.Control_id = 4 "
-            "    AND a.created_at >= '2026-04-17' "
-            "    AND a.created_at < DATEADD(DAY, 1, '2026-04-17')"
+            "    AND a.created_at >= CAST(GETDATE() AS DATE) "
+            "    AND a.created_at < DATEADD(DAY, 1, CAST(GETDATE() AS DATE))"
         )
         colunas = [col[0] for col in cursor.description]
         linhas = cursor.fetchall()
@@ -67,8 +67,8 @@ class DatabaseService:
             "WHERE "
             "    a.Is_inserted = 1 "
             "    AND a.Control_id = 4 "
-            "    AND a.created_at >= '2026-04-17 00:00:00' "
-            "    AND a.created_at < '2026-04-18 00:00:00' "
+            "    AND a.created_at >= CAST(GETDATE() AS DATE) "
+            "    AND a.created_at < DATEADD(DAY, 1, CAST(GETDATE() AS DATE)) "
             f"    AND a.Cedente IN ({placeholders}) "
             "    AND b.Valor_Liquido_Final IS NOT NULL "
             "    AND b.Valor_Total_Desagio IS NOT NULL"
