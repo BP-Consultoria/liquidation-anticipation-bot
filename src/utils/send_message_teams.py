@@ -20,6 +20,7 @@ def formatar_mensagem(
     valor_liquido_final: float,
     array_titulos: list[Any],
     nome_portal: str,
+    cedente: str,
     valor_deixado: float | None = None,
 ) -> tuple[str, str]:
     def formatar_valor(valor: float) -> str:
@@ -32,7 +33,7 @@ def formatar_mensagem(
     hora = datetime.now().strftime("%H:%M")
     original = (
         f'<small>Lis  <span style="color:gray">{data_atual}, {hora}</span></small><br>'
-        f"R$ {valor_formatado} - TEC TRANSPORTES EIRELI "
+        f"R$ {valor_formatado} - {cedente} "
         f"R$ {valor_formatado} - Entrou no dia <br>"
         f"{data_atual} na conta INTER - GRLIS DEIXADO NO 001"
     )
@@ -93,12 +94,17 @@ def notificar_liquidacao_conta_corrente(
         raise ValueError("Valor_Liquido_Final inválido ou nulo para notificação Teams.")
     valor_liquido_final = round(float(ser_vlf.iloc[0]), 2)
 
+    if "Cedente" not in df.columns:
+        raise ValueError("DataFrame sem coluna Cedente para notificação Teams.")
+    cedente = str(df["Cedente"].iloc[0]).strip()
+
     data_atual = datetime.now().strftime("%d/%m/%Y")
     original, resposta = formatar_mensagem(
         data_atual=data_atual,
         valor_liquido_final=valor_liquido_final,
         array_titulos=titulos,
         nome_portal=nome_portal,
+        cedente=cedente,
         valor_deixado=valor_deixado,
     )
     return reply_simulado(chat_id, original, resposta)
