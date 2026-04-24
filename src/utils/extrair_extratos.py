@@ -111,16 +111,38 @@ def buscar_valor_liquido(dados_api):
     """
     Busca o valor líquido no extrato com a seguinte prioridade:
       1. PIX REMESSA (débito) para GRLIS SECURITIZADORA
+      2. TED REMESSA (fallback)
     """
     movimentacoes = parsear_movimentacoes(dados_api)
 
+    # 🔹 1. PRIORIDADE: PIX REMESSA
     for mov in movimentacoes:
         h = mov.get("historico", "").upper()
         finalidade = mov.get("finalidade", "").upper()
         tipo = mov.get("tipo", "")
 
-        if tipo == "debito" and "REMESSA" in h and "SECURITIZADORA" in finalidade:
-            print(f"    [MATCH] Valor líquido encontrado (REMESSA): R$ {mov['valor']}")
+        if (
+            tipo == "debito"
+            and "PIX" in h
+            and "REMESSA" in h
+            and "GRLIS SECURITIZADORA" in finalidade
+        ):
+            print(f"    [MATCH PIX] Valor líquido encontrado: R$ {mov['valor']}")
+            return mov["valor"]
+
+    # 🔹 2. FALLBACK: TED REMESSA
+    for mov in movimentacoes:
+        h = mov.get("historico", "").upper()
+        finalidade = mov.get("finalidade", "").upper()
+        tipo = mov.get("tipo", "")
+
+        if (
+            tipo == "debito"
+            and "TED" in h
+            and "REMESSA" in h
+            and "GRLIS SECURITIZADORA" in finalidade
+        ):
+            print(f"    [MATCH TED] Valor líquido encontrado: R$ {mov['valor']}")
             return mov["valor"]
 
     return None
