@@ -22,6 +22,18 @@ CONTAS = {
     '0003730040': "GAIA EMPREENDIMENTOS CONSTRUCOES E",
 }
 
+
+def buscar_conta_por_cedente(cedente_db: str) -> str | None:
+    """Mapeia nome do cedente do banco → número da conta no Arbi (duas primeiras palavras)."""
+    cedente_upper = cedente_db.upper().strip()
+    for conta, nome_arbi in CONTAS.items():
+        palavras_arbi = nome_arbi.upper().split()[:2]
+        palavras_db = cedente_upper.split()[:2]
+        if palavras_arbi == palavras_db:
+            return conta
+    return None
+
+
 # ──────────────────────────────────────────────
 # YAML - leitura e escrita
 # ──────────────────────────────────────────────
@@ -106,46 +118,161 @@ def consultar_extrato(conta):
 # ETAPA 3 - Chamada à API do Banco Arbi
 # ──────────────────────────────────────────────
 
+# Faixa: [valor_liquido - tolerância, valor_liquido]; entre os que passam, fica o maior.
+TOLERANCIA_VALOR_LIQUIDO_REMESSA = 500.0
 
-def buscar_valor_liquido(dados_api):
-    """
-    Busca o valor líquido no extrato com a seguinte prioridade:
-      1. PIX REMESSA (débito) para GRLIS SECURITIZADORA
-      2. TED REMESSA (fallback)
-    """
-    movimentacoes = parsear_movimentacoes(dados_api)
 
-    # 🔹 1. PRIORIDADE: PIX REMESSA
-    for mov in movimentacoes:
-        h = mov.get("historico", "").upper()
-        finalidade = mov.get("finalidade", "").upper()
-        tipo = mov.get("tipo", "")
+def _classificar_pix_ted_remesa_grlis(mov: dict) -> str | None:
+    """``'pix'``, ``'ted'`` ou ``None``."""
+    h = mov.get("historico", "").upper()
+    finalidade = mov.get("finalidade", "").upper()
+    tipo = mov.get("tipo", "")
 
-        if (
-            tipo == "debito"
-            and "PIX" in h
-            and "REMESSA" in h
-            and "GRLIS SECURITIZADORA" in finalidade
-        ):
-            print(f"    [MATCH PIX] Valor líquido encontrado: R$ {mov['valor']}")
-            return mov["valor"]
-
-    # 🔹 2. FALLBACK: TED REMESSA
-    for mov in movimentacoes:
-        h = mov.get("historico", "").upper()
-        finalidade = mov.get("finalidade", "").upper()
-        tipo = mov.get("tipo", "")
-
-        if (
-            tipo == "debito"
-            and "TED" in h
-            and "REMESSA" in h
-            and "GRLIS SECURITIZADORA" in finalidade
-        ):
-            print(f"    [MATCH TED] Valor líquido encontrado: R$ {mov['valor']}")
-            return mov["valor"]
-
+    if (
+        tipo != "debito"
+        or "REMESSA" not in h
+        or "GRLIS SECURITIZADORA" not in finalidade
+    ):
+        return None
+    if "PIX" in h:
+        return "pix"
+    if "TED" in h:
+        return "ted"
     return None
+
+
+def buscar_valor_liquido(
+    dados_api,
+    valor_liquido: float,
+    tolerancia: float = TOLERANCIA_VALOR_LIQUIDO_REMESSA,
+) -> float | None:
+    """
+    Entre débitos PIX REMESSA e TED REMESSA (GRLIS SECURITIZADORA), considera só valores em
+    [valor_liquido - tolerância, valor_liquido] (teto = referência do banco / df).
+    Sobre os candidatos da mesma categoria, usa o **maior** valor. Prioridade: PIX, depois TED.
+    """
+    ref = float(valor_liquido)
+    tol = float(tolerancia)
+    vmin = ref - tol
+    vmax = ref
+
+    movimentacoes = parsear_movimentacoes(dados_api)
+    pix_nos: list[float] = []
+    ted_nos: list[float] = []
+
+    for mov in movimentacoes:
+        kind = _classificar_pix_ted_remesa_grlis(mov)
+        if not kind:
+            continue
+        v = float(mov["valor"])
+        if v < vmin or v > vmax:
+            continue
+        if kind == "pix":
+            pix_nos.append(v)
+        else:
+            ted_nos.append(v)
+
+    if pix_nos:
+        escolhido = max(pix_nos)
+        print(
+            f"    [MATCH PIX] Valor líquido: R$ {escolhido:,.2f} (maior na faixa "
+            f"R$ {vmin:,.2f} – R$ {vmax:,.2f}, ref R$ {ref:,.2f})"
+        )
+        return escolhido
+    if ted_nos:
+        escolhido = max(ted_nos)
+        print(
+            f"    [MATCH TED] Valor líquido: R$ {escolhido:,.2f} (maior na faixa "
+            f"R$ {vmin:,.2f} – R$ {vmax:,.2f}, ref R$ {ref:,.2f})"
+        )
+        return escolhido
+
+    print(
+        f"    [MATCH] Nenhum REMESSA GRLIS entre R$ {vmin:,.2f} e R$ {vmax:,.2f} "
+        f"(ref R$ {ref:,.2f}, tolerância R$ {tol:,.2f})"
+    )
+    return None
+
+
+def _valor_liquido_referencia_por_bordero(antecipacoes: list, bordero: object) -> float | None:
+    """Líquido de referência do **borderô** (``Valor_Liquido_Final`` ou ``Valor_Liquido`` no join).
+
+    Não soma vários borderôs: no Arbi, cada remessa bate o líquido **daquela** operação (ex. 1.734,99),
+    não a soma de todos os borderôs do cedente no dia.
+    """
+    for r in antecipacoes:
+        if r.get("Bordero") != bordero:
+            continue
+        v = r.get("Valor_Liquido_Final")
+        if v is None:
+            v = r.get("Valor_Liquido")
+        if v is not None:
+            try:
+                return float(v)
+            except (TypeError, ValueError):
+                return None
+    return None
+
+
+def obter_valor_liquido_arbi_todos_cedentes(
+    borderos_por_cedente: dict[str, list],
+    antecipacoes: list,
+) -> dict[str, dict[int, float]] | None:
+    """Para cada cedente, consulta o extrato da **conta** Arbi e, para **cada borderô** distinto,
+    localiza a remessa com ``buscar_valor_liquido`` usando a referência daquele borderô.
+    Retorno: ``cedente`` → ``{ bordero: valor no extrato }``.
+    """
+    resultado: dict[str, dict[int, float]] = {}
+    for cedente, borderos in borderos_por_cedente.items():
+        conta = buscar_conta_por_cedente(cedente)
+        if not conta:
+            print(
+                f"\n[FLOW] Cedente '{cedente}' sem conta Arbi no mapa. "
+                "Valor líquido obrigatório via API — fluxo abortado."
+            )
+            return None
+
+        print(
+            f"\n[FLOW] Consultando extrato Arbi de {cedente} (conta {conta}); "
+            f"um match por borderô (ref = líquido do borderô no banco)..."
+        )
+
+        extrato_api = consultar_extrato(conta)
+        if isinstance(extrato_api, dict) and "erro" in extrato_api:
+            print(
+                f"  ERRO na API Arbi: {extrato_api['erro']}. "
+                "Valor líquido não obtido — fluxo abortado."
+            )
+            return None
+
+        por_bordero: dict[int, float] = {}
+        for b in sorted(set(borderos)):
+            ref = _valor_liquido_referencia_por_bordero(antecipacoes, b)
+            if ref is None or ref <= 0:
+                print(
+                    f"  Borderô {b}: sem Valor_Liquido/Valor_Liquido_Final para referência. "
+                    "Fluxo abortado."
+                )
+                return None
+
+            print(
+                f"  Borderô {b}: ref R$ {ref:,.2f} (faixa R$ {ref - TOLERANCIA_VALOR_LIQUIDO_REMESSA:,.2f} "
+                f"a R$ {ref:,.2f})"
+            )
+            valor = buscar_valor_liquido(extrato_api, ref)
+            if valor is None:
+                print(
+                    f"  Borderô {b}: nenhuma REMESSA GRLIS na faixa no extrato. "
+                    "Fluxo abortado."
+                )
+                return None
+
+            print(f"  Borderô {b}: valor no extrato R$ {valor:,.2f}")
+            por_bordero[int(b)] = float(valor)
+
+        resultado[cedente] = por_bordero
+
+    return resultado
 
 def chamar_api_arbi(idrequisicao, conta, idtransacao, datainicial, datafinal):
     config = ler_yaml()

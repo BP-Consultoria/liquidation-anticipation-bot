@@ -6,9 +6,7 @@ from services.desagio import (
     calcular_financeiros_agregados_cedente,
     obter_dias_antecipacao,
 )
-from utils.extrair_extratos import (
-    CONTAS, renovar_token, consultar_extrato, buscar_valor_liquido,
-)
+from utils.extrair_extratos import obter_valor_liquido_arbi_todos_cedentes, renovar_token
 
 from config import settings
 from rpa.Wba import WBA
@@ -55,61 +53,6 @@ def preparar_df_para_rpa(df: pd.DataFrame) -> pd.DataFrame:
     ).drop(columns=["_titulo_ordem"])
     out = out.reset_index(drop=True)
     return out
-
-
-def buscar_conta_por_cedente(cedente_db: str) -> str | None:
-    """Mapeia nome do cedente do banco → número da conta no Arbi.
-    Compara pelo início do nome para tolerar diferenças como EIRELI/LTDA."""
-    cedente_upper = cedente_db.upper().strip()
-    for conta, nome_arbi in CONTAS.items():
-        # Compara as duas primeiras palavras (ex: "TEC TRANSPORTES")
-        palavras_arbi = nome_arbi.upper().split()[:2]
-        palavras_db = cedente_upper.split()[:2]
-        if palavras_arbi == palavras_db:
-            return conta
-    return None
-
-
-def obter_valor_liquido_arbi_todos_cedentes(
-    borderos_por_cedente: dict[str, list],
-) -> dict[str, tuple[float, list]] | None:
-    """Para cada cedente, obtém o valor líquido (TED REMESSA) no Arbi.
-
-    Se **qualquer** cedente falhar (sem conta, erro de API ou sem TED), retorna ``None``
-    e o fluxo não deve atualizar o banco nem seguir para o RPA.
-    """
-    resultado: dict[str, tuple[float, list]] = {}
-    for cedente, borderos in borderos_por_cedente.items():
-        conta = buscar_conta_por_cedente(cedente)
-        if not conta:
-            print(
-                f"\n[FLOW] Cedente '{cedente}' sem conta Arbi no mapa. "
-                "Valor líquido obrigatório via API — fluxo abortado."
-            )
-            return None
-
-        print(f"\n[FLOW] Consultando extrato Arbi de {cedente} (conta {conta})...")
-
-        extrato_api = consultar_extrato(conta)
-        if isinstance(extrato_api, dict) and "erro" in extrato_api:
-            print(
-                f"  ERRO na API Arbi: {extrato_api['erro']}. "
-                "Valor líquido não obtido — fluxo abortado."
-            )
-            return None
-
-        valor = buscar_valor_liquido(extrato_api)
-        if valor is None:
-            print(
-                f"  Nenhuma TED REMESSA no extrato Arbi para {cedente}. "
-                "Valor líquido obrigatório — fluxo abortado."
-            )
-            return None
-
-        print(f"  TED REMESSA (valor líquido): R$ {valor:,.2f}")
-        resultado[cedente] = (float(valor), borderos)
-
-    return resultado
 
 
 def _aplicar_debito_credito_agregado_e_persistir(g: pd.DataFrame) -> pd.DataFrame:
@@ -177,14 +120,16 @@ def run():
             borderos_por_cedente.setdefault(cedente, []).append(row["Bordero"])
 
         # 5. Valor líquido obrigatório via Arbi (TED REMESSA) para todos os cedentes; só então atualiza o banco
-        valores_arbi = obter_valor_liquido_arbi_todos_cedentes(borderos_por_cedente)
+        valores_arbi = obter_valor_liquido_arbi_todos_cedentes(
+            borderos_por_cedente, antecipacoes
+        )
         if valores_arbi is None:
             print("\n[FLOW] Valor líquido Arbi incompleto ou ausente. RPA não será iniciado.")
             return
 
         cedentes_atualizados = []
-        for cedente, (valor, borderos) in valores_arbi.items():
-            for bordero in set(borderos):
+        for cedente, por_bordero in valores_arbi.items():
+            for bordero, valor in por_bordero.items():
                 db_service.atualizar_valor_liquido(bordero, valor)
             cedentes_atualizados.append(cedente)
 
