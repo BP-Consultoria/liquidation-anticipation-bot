@@ -766,7 +766,7 @@ class WBA:
         titulo_manutencao_fluxo: str = "Manutenção do Fluxo de Caixa (Carteira Própria)",
         imagem_filtro: str = r"C:\Users\suporte\Documents\imagens\filtro.png",
         imagem_tags: str = r"C:\Users\suporte\Documents\imagens\tags.png",
-        texto_tag: str = "SALDO ANTECIPAÇÃO INSUFICIENTE",
+        texto_tag: str = "SALDO DE ANTECIPACAO INSUFICIENTE",
         confidence: float = 0.8,
         max_pgdn_lista_tag: int = 20,
         pyautogui_write_interval: float = 0.0,
