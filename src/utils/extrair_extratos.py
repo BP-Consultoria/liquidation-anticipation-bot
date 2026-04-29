@@ -195,17 +195,21 @@ def buscar_valor_liquido(
 
 
 def _valor_liquido_referencia_por_bordero(antecipacoes: list, bordero: object) -> float | None:
-    """Líquido de referência do **borderô** (``Valor_Liquido_Final`` ou ``Valor_Liquido`` no join).
+    """Líquido de referência do **borderô** para localizar o lançamento no extrato.
 
-    Não soma vários borderôs: no Arbi, cada remessa bate o líquido **daquela** operação (ex. 1.734,99),
-    não a soma de todos os borderôs do cedente no dia.
+    Usa **primeiro** ``Valor_Liquido`` no join (valor de negócio / planejado no borderô).
+    ``Valor_Liquido_Final`` é gravado pelo próprio fluxo após ler o Arbi — não usar como ref
+    principal, para não reaproveitar resíduo de execução anterior quando o esperado já mudou
+    ou foi corrigido em ``Valor_Liquido``.
+
+    Ordem: ``Valor_Liquido`` → se nulo, ``Valor_Liquido_Final`` (somente fallback).
     """
     for r in antecipacoes:
         if r.get("Bordero") != bordero:
             continue
-        v = r.get("Valor_Liquido_Final")
+        v = r.get("Valor_Liquido")
         if v is None:
-            v = r.get("Valor_Liquido")
+            v = r.get("Valor_Liquido_Final")
         if v is not None:
             try:
                 return float(v)
@@ -250,8 +254,8 @@ def obter_valor_liquido_arbi_todos_cedentes(
             ref = _valor_liquido_referencia_por_bordero(antecipacoes, b)
             if ref is None or ref <= 0:
                 print(
-                    f"  Borderô {b}: sem Valor_Liquido/Valor_Liquido_Final para referência. "
-                    "Fluxo abortado."
+                    f"  Borderô {b}: sem Valor_Liquido (nem Valor_Liquido_Final) para referência "
+                    "no extrato. Fluxo abortado."
                 )
                 return None
 
